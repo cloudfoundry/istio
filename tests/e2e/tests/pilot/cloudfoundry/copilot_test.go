@@ -303,7 +303,7 @@ func runPilot(copilotConfigFile, istioConfigDir string, grpcPort, debugPort int)
 		"--registries", "CloudFoundry",
 		"--cfConfig", copilotConfigFile,
 		"--meshConfig", "/dev/null",
-		"--grpcAddr", fmt.Sprintf("%d", grpcPort),
+		"--grpcAddr", fmt.Sprintf(":%d", grpcPort),
 		"--port", fmt.Sprintf("%d", debugPort),
 	)
 	return gexec.Start(pilotCmd, nil, nil) // change these to os.Stdout when debugging

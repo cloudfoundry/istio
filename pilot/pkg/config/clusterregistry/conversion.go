@@ -57,16 +57,15 @@ func NewClustersStore() *ClusterStore {
 	}
 }
 
-// GetClientAccessConfigs returns map of collected client configs
-func (cs *ClusterStore) GetClientAccessConfigs() map[string]clientcmdapi.Config {
-	return cs.clientConfigs
-}
-
 // GetClusterAccessConfig returns the access config file of a cluster
 func (cs *ClusterStore) GetClusterAccessConfig(cluster *k8s_cr.Cluster) *clientcmdapi.Config {
 	if cluster == nil {
 		return nil
 	}
+
+	cs.storeLock.Lock()
+	defer cs.storeLock.Unlock()
+
 	clusterAccessConfig := cs.clientConfigs[cluster.ObjectMeta.Name]
 	return &clusterAccessConfig
 }
@@ -117,6 +116,9 @@ func getClustersConfigsV2(k8s kubernetes.Interface, cs *ClusterStore, podNameSpa
 			errList = multierror.Append(errList, fmt.Errorf("could not load kubeconfig for secret %s error %v", secret.ObjectMeta.Name, err))
 			continue
 		}
+
+		cs.storeLock.Lock()
+		defer cs.storeLock.Unlock()
 
 		cs.clientConfigs[secret.ObjectMeta.Name] = *clientConfig
 		cluster.ObjectMeta.Name = secret.ObjectMeta.Name
@@ -187,6 +189,10 @@ func getClustersConfigs(k8s kubernetes.Interface, configMapName, configMapNamesp
 				secretName, secretNamespace, key, err))
 			continue
 		}
+
+		cs.storeLock.Lock()
+		defer cs.storeLock.Unlock()
+
 		cs.clientConfigs[cluster.ObjectMeta.Name] = *clientConfig
 		cs.clusters = append(cs.clusters, &cluster)
 	}

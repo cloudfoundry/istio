@@ -199,6 +199,7 @@ func checkSecret(s *corev1.Secret) bool {
 }
 
 func addMemberCluster(s *corev1.Secret, cs *ClusterStore) {
+	// TODO: Add unit tests and remove locks and maybe implement new methods on cluster store
 	cs.storeLock.Lock()
 	defer cs.storeLock.Unlock()
 	// Check if there is already a cluster member with the specified

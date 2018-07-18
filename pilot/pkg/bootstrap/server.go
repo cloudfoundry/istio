@@ -39,7 +39,9 @@ import (
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/tools/clientcmd"
 
+	mcp "istio.io/api/config/mcp/v1alpha1"
 	meshconfig "istio.io/api/mesh/v1alpha1"
+	mcpclient "istio.io/istio/galley/pkg/mcp/client"
 	"istio.io/istio/pilot/cmd"
 	configaggregate "istio.io/istio/pilot/pkg/config/aggregate"
 	"istio.io/istio/pilot/pkg/config/clusterregistry"
@@ -166,6 +168,7 @@ type PilotArgs struct {
 	MeshConfig       *meshconfig.MeshConfig
 	CtrlZOptions     *ctrlz.Options
 	Plugins          []string
+	MCPServerAddress string
 }
 
 // Server contains the runtime configuration for the Pilot discovery service.
@@ -174,6 +177,7 @@ type Server struct {
 	GRPCListeningAddr       net.Addr
 	SecureGRPCListeningAddr net.Addr
 	MonitorListeningAddr    net.Addr
+	MCPClientListeningAddr  net.Addr
 
 	// TODO(nmittler): Consider alternatives to exposing these directly
 	EnvoyXdsServer    *envoyv2.DiscoveryServer
@@ -192,6 +196,10 @@ type Server struct {
 	istioConfigStore model.IstioConfigStore
 	mux              *http.ServeMux
 }
+
+type noopUpdater struct{}
+
+func (*noopUpdater) Update(*mcpclient.Change) error { return nil }
 
 func createInterface(kubeconfig string) (kubernetes.Interface, error) {
 	restConfig, err := clientcmd.BuildConfigFromFlags("", kubeconfig)
@@ -243,6 +251,9 @@ func NewServer(args PilotArgs) (*Server, error) {
 	if err := s.initMonitor(&args); err != nil {
 		return nil, err
 	}
+	if err := s.initMeshConfigProtocolClient(&args); err != nil {
+		return nil, err
+	}
 	if err := s.initMultiClusterController(&args); err != nil {
 		return nil, err
 	}
@@ -288,6 +299,20 @@ func (s *Server) initMonitor(args *PilotArgs) error {
 		}()
 		return nil
 	})
+	return nil
+}
+
+func (s *Server) initMeshConfigProtocolClient(args *PilotArgs) error {
+	address := args.MCPServerAddress
+	conn, err := grpc.Dial(address, grpc.WithInsecure())
+	if err != nil {
+		log.Infof("unable to establish connection with mcp server")
+	}
+
+	client := mcp.NewAggregatedMeshConfigServiceClient(conn)
+	id := "some-id"
+	mcpclient.New(client, []string{}, &noopUpdater{}, id, map[string]string{})
+
 	return nil
 }
 

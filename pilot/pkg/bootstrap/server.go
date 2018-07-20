@@ -15,6 +15,7 @@
 package bootstrap
 
 import (
+	"context"
 	"crypto/tls"
 	"crypto/x509"
 	"fmt"
@@ -47,6 +48,7 @@ import (
 	"istio.io/istio/pilot/pkg/config/clusterregistry"
 	"istio.io/istio/pilot/pkg/config/kube/crd"
 	"istio.io/istio/pilot/pkg/config/kube/ingress"
+	pilotmcp "istio.io/istio/pilot/pkg/config/mcp"
 	"istio.io/istio/pilot/pkg/config/memory"
 	configmonitor "istio.io/istio/pilot/pkg/config/monitor"
 	"istio.io/istio/pilot/pkg/model"
@@ -309,9 +311,19 @@ func (s *Server) initMeshConfigProtocolClient(args *PilotArgs) error {
 		log.Infof("unable to establish connection with mcp server")
 	}
 
-	client := mcp.NewAggregatedMeshConfigServiceClient(conn)
-	id := "some-id"
-	mcpclient.New(client, []string{}, &noopUpdater{}, id, map[string]string{})
+	cl := mcp.NewAggregatedMeshConfigServiceClient(conn)
+	u := pilotmcp.ConfigStore{}
+	clientNodeID := "some-id"
+	mcpClient := mcpclient.New(cl, []string{}, &u, clientNodeID, map[string]string{})
+
+	s.addStartFunc(func(stop chan struct{}) error {
+		go func() {
+			mcpClient.Run(context.Background())
+			<-stop
+		}()
+
+		return nil
+	})
 
 	return nil
 }

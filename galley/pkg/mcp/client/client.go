@@ -212,14 +212,13 @@ func (c *Client) handleResponse(response *mcp.MeshConfigResponse) error {
 		return c.sendNACKRequest(response, state.version(), errDetails)
 	}
 
-	// ACK
-	req := &mcp.MeshConfigRequest{
+	ack := &mcp.MeshConfigRequest{
 		Client:        c.clientInfo,
 		TypeUrl:       response.TypeUrl,
 		VersionInfo:   response.VersionInfo,
 		ResponseNonce: response.Nonce,
 	}
-	if err := c.stream.Send(req); err != nil {
+	if err := c.stream.Send(ack); err != nil {
 		return err
 	}
 	state.setVersion(response.VersionInfo)

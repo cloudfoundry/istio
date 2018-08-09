@@ -35,6 +35,7 @@ type Controller struct {
 	logger      logger
 }
 
+// no setting and getting of the store
 func NewController(store model.ConfigStore, logger logger) *Controller {
 	descriptors := make(map[string]model.ProtoSchema, len(model.IstioConfigTypes))
 	for _, config := range model.IstioConfigTypes {

@@ -141,7 +141,7 @@ type PilotArgs struct {
 	MeshConfig       *meshconfig.MeshConfig
 	CtrlZOptions     *ctrlz.Options
 	Plugins          []string
-	MCPServerAddr    string
+	MCPServerAddrs   []string
 }
 
 // Server contains the runtime configuration for the Pilot discovery service.
@@ -482,12 +482,12 @@ func (c *mockController) Run(<-chan struct{}) {}
 
 // initConfigController creates the config controller in the pilotConfig.
 func (s *Server) initConfigController(args *PilotArgs) error {
-	if args.MCPServerAddr != "" {
+	if len(args.MCPServerAddrs) > 0 {
 		store := memory.Make(model.IstioConfigTypes)
 		mcpController := coredatamodel.NewController(store, log.RegisterScope("coredatamodel", "mcp controller debugging", 0))
 		mcpUpdater := coredatamodel.NewUpdater(mcpController)
-
-		serverAddr := args.MCPServerAddr
+		// TODO loop and intialized the conn and cli per addr
+		serverAddr := args.MCPServerAddrs[0]
 		conn, err := grpc.Dial(serverAddr, grpc.WithInsecure())
 		if err != nil {
 			log.Infof("Unable connecting to MCP Server: %v\n", err)
@@ -502,6 +502,7 @@ func (s *Server) initConfigController(args *PilotArgs) error {
 			supportedTypes = append(supportedTypes, model.MessageName)
 		}
 		log.Infof("mcp client initialized with supported types: %+v\n", supportedTypes)
+		// mcpUpdater and controller should be shared among all the clients per mcp addr
 		mcpClient := mcpclient.New(cl, supportedTypes, mcpUpdater, clientNodeID, map[string]string{})
 
 		s.addStartFunc(func(stop <-chan struct{}) error {

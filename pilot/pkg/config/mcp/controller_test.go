@@ -23,10 +23,10 @@ import (
 	"github.com/onsi/gomega"
 	mcp "istio.io/api/mcp/v1alpha1"
 	networking "istio.io/api/networking/v1alpha3"
-	mcpclient "istio.io/istio/galley/pkg/mcp/client"
 	coredatamodel "istio.io/istio/pilot/pkg/config/mcp"
 	"istio.io/istio/pilot/pkg/config/mcp/fakes"
 	"istio.io/istio/pilot/pkg/model"
+	mcpclient "istio.io/istio/pkg/mcp/client"
 )
 
 func TestRegisterEventHandler(t *testing.T) {

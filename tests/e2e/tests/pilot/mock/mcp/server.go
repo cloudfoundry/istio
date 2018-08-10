@@ -11,7 +11,7 @@ import (
 	"google.golang.org/grpc"
 	mcp "istio.io/api/mcp/v1alpha1"
 	networking "istio.io/api/networking/v1alpha3"
-	mcpserver "istio.io/istio/galley/pkg/mcp/server"
+	mcpserver "istio.io/istio/pkg/mcp/server"
 )
 
 type mockWatcher struct{}
@@ -76,11 +76,10 @@ type Server struct {
 	l  net.Listener
 }
 
-func NewServer(port string, typeUrls []string) (*Server, error) {
+func NewServer(addr string, typeUrls []string) (*Server, error) {
 	watcher := mockWatcher{}
 	s := mcpserver.New(watcher, typeUrls)
 
-	addr := fmt.Sprintf("127.0.0.1%s", port)
 	l, err := net.Listen("tcp", addr)
 	if err != nil {
 		return nil, err
@@ -97,6 +96,7 @@ func NewServer(port string, typeUrls []string) (*Server, error) {
 	gs := grpc.NewServer()
 
 	mcp.RegisterAggregatedMeshConfigServiceServer(gs, s)
+	log.Printf("MCP mock server listening on %s", addr)
 	go func() { _ = gs.Serve(l) }()
 
 	return &Server{

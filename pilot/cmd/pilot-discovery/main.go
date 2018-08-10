@@ -105,7 +105,7 @@ func init() {
 		"Select a namespace where the controller resides. If not set, uses ${POD_NAMESPACE} environment variable")
 	discoveryCmd.PersistentFlags().StringSliceVar(&serverArgs.Plugins, "plugins", bootstrap.DefaultPlugins,
 		"comma separated list of networking plugins to enable")
-	discoveryCmd.PersistentFlags().StringVar(&serverArgs.MCPServerAddrs, "mcpServerAddrs", []string{},
+	discoveryCmd.PersistentFlags().StringSliceVar(&serverArgs.MCPServerAddrs, "mcpServerAddrs", []string{},
 		"comma seperated list of mesh config protocol server addresses")
 
 	// Config Controller options

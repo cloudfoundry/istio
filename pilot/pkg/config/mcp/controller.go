@@ -20,8 +20,8 @@ import (
 	"time"
 
 	"github.com/gogo/protobuf/proto"
-	mcpclient "istio.io/istio/galley/pkg/mcp/client"
 	"istio.io/istio/pilot/pkg/model"
+	mcpclient "istio.io/istio/pkg/mcp/client"
 )
 
 var (

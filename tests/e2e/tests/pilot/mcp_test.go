@@ -37,7 +37,7 @@ const (
 	pilotDebugPort = 5555
 	pilotGrpcPort  = 15010
 	gatewayPort    = "4321"
-	mcpServerPort  = ":15014"
+	mcpServerAddr  = "127.0.0.1:15014"
 )
 
 func TestPilotMCPClient(t *testing.T) {
@@ -49,11 +49,12 @@ func TestPilotMCPClient(t *testing.T) {
 
 	t.Log("building pilot...")
 	istioConfigDir := testhelpers.TempDir()
-	pilotSession, err := runPilot(istioConfigDir, mcpServerPort, pilotGrpcPort, pilotDebugPort)
+	pilotSession, err := runPilot(istioConfigDir, mcpServerAddr, pilotGrpcPort, pilotDebugPort)
 	g.Expect(err).NotTo(gomega.HaveOccurred())
 
 	t.Log("checking if pilot ready")
 	g.Eventually(pilotSession.Out, "10s").Should(gbytes.Say(`READY`))
+	fmt.Println(string(pilotSession.Out.Contents()))
 
 	t.Log("run edge router envoy...")
 	gateway := runEnvoy(t, pilotGrpcPort, pilotDebugPort)
@@ -93,7 +94,7 @@ func runMcpServer(g *gomega.GomegaWithT, t *testing.T) (*mockmcp.Server, error) 
 		fmt.Sprintf("type.googleapis.com/%s", model.EnvoyFilter.MessageName),
 	}
 
-	server, err := mockmcp.NewServer(mcpServerPort, supportedTypes)
+	server, err := mockmcp.NewServer(mcpServerAddr, supportedTypes)
 	if err != nil {
 		return nil, err
 	}
@@ -101,7 +102,7 @@ func runMcpServer(g *gomega.GomegaWithT, t *testing.T) (*mockmcp.Server, error) 
 	return server, nil
 }
 
-func runPilot(istioConfigDir, mcpServerPort string, grpcPort, debugPort int) (*gexec.Session, error) {
+func runPilot(istioConfigDir, mcpServerAddr string, grpcPort, debugPort int) (*gexec.Session, error) {
 	path, err := gexec.Build("istio.io/istio/pilot/cmd/pilot-discovery")
 	if err != nil {
 		return nil, err
@@ -113,7 +114,7 @@ func runPilot(istioConfigDir, mcpServerPort string, grpcPort, debugPort int) (*g
 		"--meshConfig", "/dev/null",
 		"--grpcAddr", fmt.Sprintf(":%d", grpcPort),
 		"--httpAddr", fmt.Sprintf(":%d", debugPort),
-		"--mcpServerAddr", mcpServerPort,
+		"--mcpServerAddrs", mcpServerAddr,
 	)
 
 	return gexec.Start(pilotCmd, os.Stdout, os.Stderr) // change these to os.Stdout when debugging

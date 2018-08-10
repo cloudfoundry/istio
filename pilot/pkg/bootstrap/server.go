@@ -42,7 +42,6 @@ import (
 
 	mcp "istio.io/api/mcp/v1alpha1"
 	meshconfig "istio.io/api/mesh/v1alpha1"
-	mcpclient "istio.io/istio/galley/pkg/mcp/client"
 	"istio.io/istio/pilot/cmd"
 	configaggregate "istio.io/istio/pilot/pkg/config/aggregate"
 	cf "istio.io/istio/pilot/pkg/config/cloudfoundry"
@@ -66,6 +65,7 @@ import (
 	srmemory "istio.io/istio/pilot/pkg/serviceregistry/memory"
 	"istio.io/istio/pkg/ctrlz"
 	"istio.io/istio/pkg/log"
+	mcpclient "istio.io/istio/pkg/mcp/client"
 	"istio.io/istio/pkg/version"
 )
 

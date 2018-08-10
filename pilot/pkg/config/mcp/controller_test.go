@@ -18,20 +18,21 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/gogo/protobuf/proto"
+	google_protobuf "github.com/gogo/protobuf/types"
 	"github.com/onsi/gomega"
+	mcp "istio.io/api/mcp/v1alpha1"
 	networking "istio.io/api/networking/v1alpha3"
+	mcpclient "istio.io/istio/galley/pkg/mcp/client"
 	coredatamodel "istio.io/istio/pilot/pkg/config/mcp"
 	"istio.io/istio/pilot/pkg/config/mcp/fakes"
-	"istio.io/istio/pilot/pkg/config/memory"
 	"istio.io/istio/pilot/pkg/model"
 )
 
 func TestRegisterEventHandler(t *testing.T) {
 	g := gomega.NewGomegaWithT(t)
-	configDescriptor := model.ConfigDescriptor{}
-	store := memory.Make(configDescriptor)
 	logger := &fakes.Logger{}
-	controller := coredatamodel.NewController(store, logger)
+	controller := coredatamodel.NewController(logger)
 
 	var (
 		registeredEvent     int
@@ -59,10 +60,8 @@ func TestRegisterEventHandler(t *testing.T) {
 
 func TestConfigDescriptor(t *testing.T) {
 	g := gomega.NewGomegaWithT(t)
-	configDescriptor := model.ConfigDescriptor{model.DestinationRule}
-	store := memory.Make(configDescriptor)
 	logger := &fakes.Logger{}
-	controller := coredatamodel.NewController(store, logger)
+	controller := coredatamodel.NewController(logger)
 
 	descriptors := controller.ConfigDescriptor()
 	g.Expect(descriptors).To(gomega.Equal(model.IstioConfigTypes))
@@ -70,24 +69,20 @@ func TestConfigDescriptor(t *testing.T) {
 
 func TestGetInvalidType(t *testing.T) {
 	g := gomega.NewGomegaWithT(t)
-	configDescriptor := model.ConfigDescriptor{}
-	store := memory.Make(configDescriptor)
 	logger := &fakes.Logger{}
-	controller := coredatamodel.NewController(store, logger)
+	controller := coredatamodel.NewController(logger)
 
-	c, exist := controller.Get("non-existent", "some-phony-name-space.com", "")
+	c, exist := controller.Get("non-existent", "some-phony-name", "")
 	g.Expect(c).To(gomega.BeNil())
 	g.Expect(exist).To(gomega.BeFalse())
 
 	g.Expect(logger.InfofCallCount()).To(gomega.Equal(1))
 	format, message := logger.InfofArgsForCall(0)
-	g.Expect(fmt.Sprintf(format, message...)).To(gomega.Equal("Get: type not supported: non-existent"))
+	g.Expect(fmt.Sprintf(format, message...)).To(gomega.Equal("Get: config not found for the type non-existent"))
 }
 
 func TestGetValidType(t *testing.T) {
 	g := gomega.NewGomegaWithT(t)
-	configDescriptor := model.ConfigDescriptor{model.Gateway}
-	store := memory.Make(configDescriptor)
 	expectedConfig := model.Config{
 		ConfigMeta: model.ConfigMeta{
 			Name: "some-gateway",
@@ -106,9 +101,9 @@ func TestGetValidType(t *testing.T) {
 			},
 		},
 	}
-	store.Create(expectedConfig)
 	logger := &fakes.Logger{}
-	controller := coredatamodel.NewController(store, logger)
+	controller := coredatamodel.NewController(logger)
+	controller.Create(expectedConfig)
 
 	c, exist := controller.Get("gateway", "some-gateway", "")
 	g.Expect(exist).To(gomega.BeTrue())
@@ -119,21 +114,17 @@ func TestGetValidType(t *testing.T) {
 
 func TestListInvalidType(t *testing.T) {
 	g := gomega.NewGomegaWithT(t)
-	configDescriptor := model.ConfigDescriptor{model.Gateway}
-	store := memory.Make(configDescriptor)
 	logger := &fakes.Logger{}
-	controller := coredatamodel.NewController(store, logger)
+	controller := coredatamodel.NewController(logger)
 
 	c, err := controller.List("non-existent", "some-phony-name-space.com")
 	g.Expect(c).To(gomega.BeNil())
 	g.Expect(err).To(gomega.HaveOccurred())
-	g.Expect(err.Error()).To(gomega.ContainSubstring("type not supported"))
+	g.Expect(err.Error()).To(gomega.ContainSubstring("List: unknown type"))
 }
 
 func TestListValidType(t *testing.T) {
 	g := gomega.NewGomegaWithT(t)
-	configDescriptor := model.ConfigDescriptor{model.Gateway}
-	store := memory.Make(configDescriptor)
 	expectedConfig1 := model.Config{
 		ConfigMeta: model.ConfigMeta{
 			Name: "some-gateway",
@@ -170,10 +161,11 @@ func TestListValidType(t *testing.T) {
 			},
 		},
 	}
-	store.Create(expectedConfig1)
-	store.Create(expectedConfig2)
+
 	logger := &fakes.Logger{}
-	controller := coredatamodel.NewController(store, logger)
+	controller := coredatamodel.NewController(logger)
+	controller.Create(expectedConfig1)
+	controller.Create(expectedConfig2)
 
 	// Get gateways in all ("") namespaces
 	c, err := controller.List("gateway", "")
@@ -192,10 +184,8 @@ func TestListValidType(t *testing.T) {
 
 func TestUpdateInvalidType(t *testing.T) {
 	g := gomega.NewGomegaWithT(t)
-	configDescriptor := model.ConfigDescriptor{model.Gateway}
-	store := memory.Make(configDescriptor)
 	logger := &fakes.Logger{}
-	controller := coredatamodel.NewController(store, logger)
+	controller := coredatamodel.NewController(logger)
 
 	invalidConfig := model.Config{
 		ConfigMeta: model.ConfigMeta{
@@ -218,13 +208,12 @@ func TestUpdateInvalidType(t *testing.T) {
 	c, err := controller.Update(invalidConfig)
 	g.Expect(c).To(gomega.BeEmpty())
 	g.Expect(err).To(gomega.HaveOccurred())
-	g.Expect(err.Error()).To(gomega.ContainSubstring("type not supported"))
+	g.Expect(err.Error()).To(gomega.ContainSubstring("Update: unknown type"))
 }
 
 func TestUpateValidType(t *testing.T) {
 	g := gomega.NewGomegaWithT(t)
-	configDescriptor := model.ConfigDescriptor{model.Gateway}
-	store := memory.Make(configDescriptor)
+
 	existingConfig := model.Config{
 		ConfigMeta: model.ConfigMeta{
 			Name:            "some-gateway",
@@ -244,9 +233,9 @@ func TestUpateValidType(t *testing.T) {
 			},
 		},
 	}
-	revision, _ := store.Create(existingConfig)
 	logger := &fakes.Logger{}
-	controller := coredatamodel.NewController(store, logger)
+	controller := coredatamodel.NewController(logger)
+	revision, _ := controller.Create(existingConfig)
 
 	updatedConfig := model.Config{
 		ConfigMeta: model.ConfigMeta{
@@ -276,4 +265,129 @@ func TestUpateValidType(t *testing.T) {
 	g.Expect(c.Type).To(gomega.Equal(updatedConfig.Type))
 	g.Expect(c.Name).To(gomega.Equal(updatedConfig.Name))
 	g.Expect(c.Spec).To(gomega.Equal(updatedConfig.Spec))
+}
+
+func TestApplyInvalidType(t *testing.T) {
+	g := gomega.NewGomegaWithT(t)
+	logger := &fakes.Logger{}
+	controller := coredatamodel.NewController(logger)
+
+	gateway := &networking.Gateway{
+		Servers: []*networking.Server{
+			&networking.Server{
+				Port: &networking.Port{
+					Name:     "https",
+					Number:   443,
+					Protocol: "HTTP",
+				},
+				Hosts: []string{
+					"*",
+				},
+			},
+		},
+	}
+
+	marshaledGateway, err := proto.Marshal(gateway)
+	g.Expect(err).ToNot(gomega.HaveOccurred())
+
+	message, err := makeMessage(marshaledGateway, model.Gateway.MessageName)
+	g.Expect(err).ToNot(gomega.HaveOccurred())
+
+	change := makeChange(message, "some-gateway", "bad-type")
+
+	err = controller.Apply(change)
+	g.Expect(err).To(gomega.HaveOccurred())
+}
+
+func TestApplyValidType(t *testing.T) {
+	g := gomega.NewGomegaWithT(t)
+	logger := &fakes.Logger{}
+	controller := coredatamodel.NewController(logger)
+	stop := make(chan struct{})
+	go controller.Run(stop)
+	defer func() {
+		stop <- struct{}{}
+	}()
+	expectedConfig := model.Config{
+		ConfigMeta: model.ConfigMeta{
+			Name: "some-gateway",
+			Type: "gateway",
+		},
+		Spec: &networking.Gateway{
+			Servers: []*networking.Server{
+				{
+					Port: &networking.Port{
+						Number:   80,
+						Name:     "http",
+						Protocol: "HTTP",
+					},
+					Hosts: []string{"*.example.com"},
+				},
+			},
+		},
+	}
+	controller.Create(expectedConfig)
+
+	gateway := &networking.Gateway{
+		Servers: []*networking.Server{
+			&networking.Server{
+				Port: &networking.Port{
+					Name:     "https",
+					Number:   443,
+					Protocol: "HTTP",
+				},
+				Hosts: []string{
+					"*",
+				},
+			},
+		},
+	}
+
+	marshaledGateway, err := proto.Marshal(gateway)
+	g.Expect(err).ToNot(gomega.HaveOccurred())
+
+	message, err := makeMessage(marshaledGateway, model.Gateway.MessageName)
+	g.Expect(err).ToNot(gomega.HaveOccurred())
+
+	change := makeChange(message, "some-gateway", model.Gateway.MessageName)
+
+	err = controller.Apply(change)
+	g.Expect(err).ToNot(gomega.HaveOccurred())
+
+	c, exist := controller.Get("gateway", "some-gateway", "")
+	g.Expect(c).ToNot(gomega.BeNil())
+	g.Expect(exist).To(gomega.BeTrue())
+	g.Expect(c.Name).To(gomega.Equal(expectedConfig.Name))
+	g.Expect(c.Type).To(gomega.Equal(expectedConfig.Type))
+	g.Expect(c.Spec).To(gomega.Equal(message))
+}
+
+func makeMessage(value []byte, responseMessageName string) (proto.Message, error) {
+	resource := &google_protobuf.Any{
+		TypeUrl: fmt.Sprintf("type.googleapis.com/%s", responseMessageName),
+		Value:   value,
+	}
+
+	var dynamicAny google_protobuf.DynamicAny
+	err := google_protobuf.UnmarshalAny(resource, &dynamicAny)
+	if err == nil {
+		return dynamicAny.Message, nil
+	}
+
+	return nil, err
+}
+
+func makeChange(resource proto.Message, name, responseMessageName string) *mcpclient.Change {
+	return &mcpclient.Change{
+		MessageName: responseMessageName,
+		Objects: []*mcpclient.Object{
+			{
+				MessageName: responseMessageName,
+				Metadata: &mcp.Metadata{
+					Name: name,
+				},
+				Resource: resource,
+			},
+		},
+	}
 }

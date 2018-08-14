@@ -466,6 +466,7 @@ func (s *Server) initConfigController(args *PilotArgs) error {
 		})
 
 		for _, addr := range mcpServerAddrs {
+			// TODO: make this a secure connection before shipping
 			conn, err := grpc.Dial(addr, grpc.WithInsecure())
 			if err != nil {
 				log.Infof("Unable connecting to MCP Server: %v\n", err)

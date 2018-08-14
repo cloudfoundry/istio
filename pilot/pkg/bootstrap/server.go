@@ -150,7 +150,6 @@ type Server struct {
 	GRPCListeningAddr       net.Addr
 	SecureGRPCListeningAddr net.Addr
 	MonitorListeningAddr    net.Addr
-	MCPClientListeningAddr  net.Addr
 
 	// TODO(nmittler): Consider alternatives to exposing these directly
 	EnvoyXdsServer    *envoyv2.DiscoveryServer

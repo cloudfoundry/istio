@@ -187,7 +187,7 @@ func TestServices(t *testing.T) {
 
 	serviceEntry := &networking.ServiceEntry{
 		Hosts:     []string{"example.com"},
-		Addresses: []string{"172.217.0.0/16"},
+		Addresses: []string{"172.217.0.0/32"},
 		Ports: []*networking.Port{
 			{Number: 444, Name: "tcp-444", Protocol: "tcp"},
 		},
@@ -209,6 +209,22 @@ func TestServices(t *testing.T) {
 	services, err := controller.Services()
 	g.Expect(err).ToNot(gomega.HaveOccurred())
 	g.Expect(len(services)).To(gomega.Equal(1))
+	service := services[0]
+	g.Expect(service.Hostname).To(gomega.Equal(model.Hostname(serviceEntry.Hosts[0])))
+	g.Expect(service.Address).To(gomega.Equal("172.217.0.0"))
+	g.Expect(service.Ports[0]).To(gomega.Equal(convertPort(serviceEntry.Ports[0])))
+	g.Expect(service.Resolution).To(gomega.Equal(model.Passthrough))
+	g.Expect(service.MeshExternal).To(gomega.BeTrue())
+	g.Expect(service.Attributes.Name).To(gomega.Equal(serviceEntry.Hosts[0]))
+	g.Expect(service.Attributes.Namespace).To(gomega.Equal(""))
+}
+
+func convertPort(port *networking.Port) *model.Port {
+	return &model.Port{
+		Name:     port.Name,
+		Port:     int(port.Number),
+		Protocol: model.ParseProtocol(port.Protocol),
+	}
 }
 
 func makeMessage(value []byte, responseMessageName string) (proto.Message, error) {

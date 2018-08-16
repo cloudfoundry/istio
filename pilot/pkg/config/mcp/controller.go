@@ -16,11 +16,13 @@ package coredatamodel
 import (
 	"errors"
 	"fmt"
+	"net"
 	"sync"
 	"time"
 
-	"istio.io/fortio/log"
+	networking "istio.io/api/networking/v1alpha3"
 	"istio.io/istio/pilot/pkg/model"
+	"istio.io/istio/pkg/log"
 	mcpclient "istio.io/istio/pkg/mcp/client"
 	meta_v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
@@ -33,7 +35,7 @@ var (
 
 type CoreDataModel interface {
 	model.ConfigStoreCache
-	model.ServiceDiscovery
+	Services() ([]*model.Service, error)
 	mcpclient.Updater
 }
 
@@ -163,6 +165,81 @@ func (c *Controller) Create(config model.Config) (revision string, err error) {
 func (c *Controller) Delete(typ, name, namespace string) error {
 	return errUnsupported
 }
+
+func (c *Controller) Services() ([]*model.Service, error) {
+	serviceEntries, ok := c.configStore[model.ServiceEntry.Type]
+	if !ok {
+		return nil, nil
+	}
+
+	out := make([]*model.Service, 0, len(c.configStore[model.ServiceEntry.Type]))
+	for _, ns := range serviceEntries {
+		ns.Range(func(key, value interface{}) bool {
+			config := value.(model.Config)
+			se := config.Spec.(*networking.ServiceEntry)
+
+			svcPorts := make(model.PortList, 0, len(se.Ports))
+			for _, port := range se.Ports {
+				svcPorts = append(svcPorts, convertPort(port))
+			}
+
+			var resolution model.Resolution
+			switch se.Resolution {
+			case networking.ServiceEntry_NONE:
+				resolution = model.Passthrough
+			case networking.ServiceEntry_DNS:
+				resolution = model.DNSLB
+			case networking.ServiceEntry_STATIC:
+				resolution = model.ClientSideLB
+			}
+
+			for _, host := range se.GetHosts() {
+				for _, address := range se.GetAddresses() {
+					var newAddress string
+					if ip, _, cidrErr := net.ParseCIDR(address); cidrErr == nil {
+						newAddress = ip.String()
+					} else if net.ParseIP(address) != nil {
+						newAddress = address
+					} else {
+						newAddress = model.UnspecifiedIP
+					}
+
+					out = append(out, &model.Service{
+						CreationTime: time.Now(),
+						MeshExternal: se.GetLocation() == networking.ServiceEntry_MESH_EXTERNAL,
+						Hostname:     model.Hostname(host),
+						Address:      newAddress,
+						Ports:        svcPorts,
+						Resolution:   resolution,
+						Attributes: model.ServiceAttributes{
+							Name:      host,
+							Namespace: config.Namespace,
+						},
+					})
+				}
+			}
+
+			return true
+		})
+	}
+
+	return out, nil
+}
+
+func convertPort(port *networking.Port) *model.Port {
+	return &model.Port{
+		Name:     port.Name,
+		Port:     int(port.Number),
+		Protocol: model.ParseProtocol(port.Protocol),
+	}
+}
+
+//	GetService(hostname Hostname) (*Service, error)
+//	Instances(hostname Hostname, ports []string, labels LabelsCollection) ([]*ServiceInstance, error)
+//	InstancesByPort(hostname Hostname, servicePort int, labels LabelsCollection) ([]*ServiceInstance, error)
+//	GetProxyServiceInstances(*Proxy) ([]*ServiceInstance, error)
+//	ManagementPorts(addr string) PortList
+//	WorkloadHealthCheckInfo(addr string) ProbeList
 
 func (c *Controller) get(typ, name, namespace string) (*model.Config, bool) {
 	fmt.Println("type:", typ, "name:", name, "namespace:", namespace)

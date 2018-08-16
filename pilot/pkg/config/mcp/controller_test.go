@@ -15,7 +15,6 @@ package coredatamodel_test
 
 import (
 	"fmt"
-	"sync"
 	"testing"
 
 	"github.com/gogo/protobuf/proto"
@@ -24,98 +23,29 @@ import (
 	mcp "istio.io/api/mcp/v1alpha1"
 	networking "istio.io/api/networking/v1alpha3"
 	coredatamodel "istio.io/istio/pilot/pkg/config/mcp"
-	"istio.io/istio/pilot/pkg/config/mcp/fakes"
 	"istio.io/istio/pilot/pkg/model"
 	mcpclient "istio.io/istio/pkg/mcp/client"
 )
 
-func TestRegisterEventHandler(t *testing.T) {
+func TestHasSynced(t *testing.T) {
+	t.Skip("Pending: https://github.com/istio/istio/issues/7947")
 	g := gomega.NewGomegaWithT(t)
-	logger := &fakes.Logger{}
-	controller := coredatamodel.NewController(logger)
+	controller := coredatamodel.NewController()
 
-	var (
-		registeredEvent     int
-		registeredEventLock sync.Mutex
-	)
-
-	stop := make(chan struct{})
-	go controller.Run(stop)
-	defer func() {
-		stop <- struct{}{}
-	}()
-
-	controller.RegisterEventHandler("virtual-service", func(model.Config, model.Event) {
-		registeredEventLock.Lock()
-		registeredEvent++
-		registeredEventLock.Unlock()
-	})
-
-	g.Eventually(func() int {
-		registeredEventLock.Lock()
-		defer registeredEventLock.Unlock()
-		return registeredEvent
-	}).Should(gomega.Equal(1))
+	g.Expect(controller.HasSynced()).To(gomega.BeFalse())
 }
 
 func TestConfigDescriptor(t *testing.T) {
 	g := gomega.NewGomegaWithT(t)
-	logger := &fakes.Logger{}
-	controller := coredatamodel.NewController(logger)
+	controller := coredatamodel.NewController()
 
 	descriptors := controller.ConfigDescriptor()
 	g.Expect(descriptors).To(gomega.Equal(model.IstioConfigTypes))
 }
 
-func TestGetInvalidType(t *testing.T) {
-	g := gomega.NewGomegaWithT(t)
-	logger := &fakes.Logger{}
-	controller := coredatamodel.NewController(logger)
-
-	c, exist := controller.Get("non-existent", "some-phony-name", "")
-	g.Expect(c).To(gomega.BeNil())
-	g.Expect(exist).To(gomega.BeFalse())
-
-	g.Expect(logger.InfofCallCount()).To(gomega.Equal(1))
-	format, message := logger.InfofArgsForCall(0)
-	g.Expect(fmt.Sprintf(format, message...)).To(gomega.Equal("Get: config not found for the type non-existent"))
-}
-
-func TestGetValidType(t *testing.T) {
-	g := gomega.NewGomegaWithT(t)
-	expectedConfig := model.Config{
-		ConfigMeta: model.ConfigMeta{
-			Name: "some-gateway",
-			Type: "gateway",
-		},
-		Spec: &networking.Gateway{
-			Servers: []*networking.Server{
-				{
-					Port: &networking.Port{
-						Number:   80,
-						Name:     "http",
-						Protocol: "HTTP",
-					},
-					Hosts: []string{"*.example.com"},
-				},
-			},
-		},
-	}
-	logger := &fakes.Logger{}
-	controller := coredatamodel.NewController(logger)
-	controller.Create(expectedConfig)
-
-	c, exist := controller.Get("gateway", "some-gateway", "")
-	g.Expect(exist).To(gomega.BeTrue())
-	g.Expect(c.Name).To(gomega.Equal(expectedConfig.Name))
-	g.Expect(c.Type).To(gomega.Equal(expectedConfig.Type))
-	g.Expect(c.Spec).To(gomega.Equal(expectedConfig.Spec))
-}
-
 func TestListInvalidType(t *testing.T) {
 	g := gomega.NewGomegaWithT(t)
-	logger := &fakes.Logger{}
-	controller := coredatamodel.NewController(logger)
+	controller := coredatamodel.NewController()
 
 	c, err := controller.List("non-existent", "some-phony-name-space.com")
 	g.Expect(c).To(gomega.BeNil())
@@ -125,152 +55,70 @@ func TestListInvalidType(t *testing.T) {
 
 func TestListValidType(t *testing.T) {
 	g := gomega.NewGomegaWithT(t)
-	expectedConfig1 := model.Config{
-		ConfigMeta: model.ConfigMeta{
-			Name: "some-gateway",
-			Type: "gateway",
-		},
-		Spec: &networking.Gateway{
-			Servers: []*networking.Server{
-				{
-					Port: &networking.Port{
-						Number:   80,
-						Name:     "http",
-						Protocol: "HTTP",
-					},
-					Hosts: []string{"*.example.com"},
+	gateway1 := &networking.Gateway{
+		Servers: []*networking.Server{
+			{
+				Port: &networking.Port{
+					Number:   80,
+					Name:     "http",
+					Protocol: "HTTP",
 				},
+				Hosts: []string{"*.example.com"},
 			},
 		},
 	}
-	expectedConfig2 := model.Config{
-		ConfigMeta: model.ConfigMeta{
-			Name: "some-gateway-2",
-			Type: "gateway",
-		},
-		Spec: &networking.Gateway{
-			Servers: []*networking.Server{
-				{
-					Port: &networking.Port{
-						Number:   443,
-						Name:     "https",
-						Protocol: "HTTP",
-					},
-					Hosts: []string{"*.secure.example.com"},
+	gateway2 := &networking.Gateway{
+		Servers: []*networking.Server{
+			{
+				Port: &networking.Port{
+					Number:   443,
+					Name:     "https",
+					Protocol: "HTTP",
 				},
+				Hosts: []string{"*.secure.example.com"},
 			},
 		},
 	}
 
-	logger := &fakes.Logger{}
-	controller := coredatamodel.NewController(logger)
-	controller.Create(expectedConfig1)
-	controller.Create(expectedConfig2)
+	controller := coredatamodel.NewController()
+	marshaledGateway1, err := proto.Marshal(gateway1)
+	g.Expect(err).ToNot(gomega.HaveOccurred())
+
+	message1, err := makeMessage(marshaledGateway1, model.Gateway.MessageName)
+	g.Expect(err).ToNot(gomega.HaveOccurred())
+
+	marshaledGateway2, err := proto.Marshal(gateway2)
+	g.Expect(err).ToNot(gomega.HaveOccurred())
+
+	message2, err := makeMessage(marshaledGateway2, model.Gateway.MessageName)
+	g.Expect(err).ToNot(gomega.HaveOccurred())
+
+	change := convert(
+		[]proto.Message{message1, message2},
+		[]string{"some-gateway1", "some-gateway2"},
+		model.Gateway.MessageName)
+
+	err = controller.Apply(change)
+	g.Expect(err).ToNot(gomega.HaveOccurred())
 
 	// Get gateways in all ("") namespaces
 	c, err := controller.List("gateway", "")
 	g.Expect(err).ToNot(gomega.HaveOccurred())
+	g.Expect(len(c)).To(gomega.Equal(2))
 	for _, conf := range c {
-		if conf.Name == expectedConfig1.Name {
-			g.Expect(conf.Type).To(gomega.Equal(expectedConfig1.Type))
-			g.Expect(conf.Spec).To(gomega.Equal(expectedConfig1.Spec))
+		g.Expect(conf.Type).To(gomega.Equal(model.Gateway.Type))
+		if conf.Name == "some-gateway1" {
+			g.Expect(conf.Spec).To(gomega.Equal(message1))
 		} else {
-			g.Expect(conf.Name).To(gomega.Equal(expectedConfig2.Name))
-			g.Expect(conf.Type).To(gomega.Equal(expectedConfig2.Type))
-			g.Expect(conf.Spec).To(gomega.Equal(expectedConfig2.Spec))
+			g.Expect(conf.Name).To(gomega.Equal("some-gateway2"))
+			g.Expect(conf.Spec).To(gomega.Equal(message2))
 		}
 	}
 }
 
-func TestUpdateInvalidType(t *testing.T) {
-	g := gomega.NewGomegaWithT(t)
-	logger := &fakes.Logger{}
-	controller := coredatamodel.NewController(logger)
-
-	invalidConfig := model.Config{
-		ConfigMeta: model.ConfigMeta{
-			Name: "some-gateway-2",
-			Type: "non-existent",
-		},
-		Spec: &networking.Gateway{
-			Servers: []*networking.Server{
-				{
-					Port: &networking.Port{
-						Number:   443,
-						Name:     "https",
-						Protocol: "HTTP",
-					},
-					Hosts: []string{"*.secure.example.com"},
-				},
-			},
-		},
-	}
-	c, err := controller.Update(invalidConfig)
-	g.Expect(c).To(gomega.BeEmpty())
-	g.Expect(err).To(gomega.HaveOccurred())
-	g.Expect(err.Error()).To(gomega.ContainSubstring("Update: unknown type"))
-}
-
-func TestUpateValidType(t *testing.T) {
-	g := gomega.NewGomegaWithT(t)
-
-	existingConfig := model.Config{
-		ConfigMeta: model.ConfigMeta{
-			Name:            "some-gateway",
-			Type:            "gateway",
-			ResourceVersion: "1",
-		},
-		Spec: &networking.Gateway{
-			Servers: []*networking.Server{
-				{
-					Port: &networking.Port{
-						Number:   80,
-						Name:     "http",
-						Protocol: "HTTP",
-					},
-					Hosts: []string{"*.example.com"},
-				},
-			},
-		},
-	}
-	logger := &fakes.Logger{}
-	controller := coredatamodel.NewController(logger)
-	revision, _ := controller.Create(existingConfig)
-
-	updatedConfig := model.Config{
-		ConfigMeta: model.ConfigMeta{
-			Name:            "some-gateway",
-			Type:            "gateway",
-			ResourceVersion: revision,
-		},
-		Spec: &networking.Gateway{
-			Servers: []*networking.Server{
-				{
-					Port: &networking.Port{
-						Number:   443,
-						Name:     "https",
-						Protocol: "HTTP",
-					},
-					Hosts: []string{"*.secure.example.com"},
-				},
-			},
-		},
-	}
-	updatedRev, err := controller.Update(updatedConfig)
-	g.Expect(err).ToNot(gomega.HaveOccurred())
-	g.Expect(updatedRev).ToNot(gomega.Equal(revision))
-
-	c, exist := controller.Get("gateway", "some-gateway", "")
-	g.Expect(exist).To(gomega.BeTrue())
-	g.Expect(c.Type).To(gomega.Equal(updatedConfig.Type))
-	g.Expect(c.Name).To(gomega.Equal(updatedConfig.Name))
-	g.Expect(c.Spec).To(gomega.Equal(updatedConfig.Spec))
-}
-
 func TestApplyInvalidType(t *testing.T) {
 	g := gomega.NewGomegaWithT(t)
-	logger := &fakes.Logger{}
-	controller := coredatamodel.NewController(logger)
+	controller := coredatamodel.NewController()
 
 	gateway := &networking.Gateway{
 		Servers: []*networking.Server{
@@ -293,7 +141,7 @@ func TestApplyInvalidType(t *testing.T) {
 	message, err := makeMessage(marshaledGateway, model.Gateway.MessageName)
 	g.Expect(err).ToNot(gomega.HaveOccurred())
 
-	change := makeChange(message, "some-gateway", "bad-type")
+	change := convert([]proto.Message{message}, []string{"some-gateway"}, "bad-type")
 
 	err = controller.Apply(change)
 	g.Expect(err).To(gomega.HaveOccurred())
@@ -301,65 +149,66 @@ func TestApplyInvalidType(t *testing.T) {
 
 func TestApplyValidType(t *testing.T) {
 	g := gomega.NewGomegaWithT(t)
-	logger := &fakes.Logger{}
-	controller := coredatamodel.NewController(logger)
-	stop := make(chan struct{})
-	go controller.Run(stop)
-	defer func() {
-		stop <- struct{}{}
-	}()
-	expectedConfig := model.Config{
-		ConfigMeta: model.ConfigMeta{
-			Name: "some-gateway",
-			Type: "gateway",
-		},
-		Spec: &networking.Gateway{
-			Servers: []*networking.Server{
-				{
-					Port: &networking.Port{
-						Number:   80,
-						Name:     "http",
-						Protocol: "HTTP",
-					},
-					Hosts: []string{"*.example.com"},
-				},
-			},
-		},
-	}
-	controller.Create(expectedConfig)
+	controller := coredatamodel.NewController()
 
-	gateway := &networking.Gateway{
+	originalGateway := &networking.Gateway{
 		Servers: []*networking.Server{
-			&networking.Server{
+			{
 				Port: &networking.Port{
-					Name:     "https",
-					Number:   443,
+					Number:   80,
+					Name:     "http",
 					Protocol: "HTTP",
 				},
-				Hosts: []string{
-					"*",
-				},
+				Hosts: []string{"*.example.com"},
 			},
 		},
 	}
-
-	marshaledGateway, err := proto.Marshal(gateway)
+	marshaledGateway, err := proto.Marshal(originalGateway)
 	g.Expect(err).ToNot(gomega.HaveOccurred())
 
 	message, err := makeMessage(marshaledGateway, model.Gateway.MessageName)
 	g.Expect(err).ToNot(gomega.HaveOccurred())
 
-	change := makeChange(message, "some-gateway", model.Gateway.MessageName)
+	change := convert([]proto.Message{message}, []string{"some-gateway"}, model.Gateway.MessageName)
+	err = controller.Apply(change)
+	g.Expect(err).ToNot(gomega.HaveOccurred())
+
+	c, err := controller.List("gateway", "")
+	g.Expect(err).ToNot(gomega.HaveOccurred())
+	g.Expect(len(c)).To(gomega.Equal(1))
+	g.Expect(c[0].Name).To(gomega.Equal("some-gateway"))
+	g.Expect(c[0].Type).To(gomega.Equal(model.Gateway.Type))
+	g.Expect(c[0].Spec).To(gomega.Equal(message))
+}
+
+func TestServices(t *testing.T) {
+	g := gomega.NewGomegaWithT(t)
+	controller := coredatamodel.NewController()
+
+	serviceEntry := &networking.ServiceEntry{
+		Hosts:     []string{"example.com"},
+		Addresses: []string{"172.217.0.0/16"},
+		Ports: []*networking.Port{
+			{Number: 444, Name: "tcp-444", Protocol: "tcp"},
+		},
+		Location:   networking.ServiceEntry_MESH_EXTERNAL,
+		Resolution: networking.ServiceEntry_NONE,
+	}
+
+	marshaledServiceEntry, err := proto.Marshal(serviceEntry)
+	g.Expect(err).ToNot(gomega.HaveOccurred())
+
+	message, err := makeMessage(marshaledServiceEntry, model.ServiceEntry.MessageName)
+	g.Expect(err).ToNot(gomega.HaveOccurred())
+
+	change := convert([]proto.Message{message}, []string{"some-service-entry"}, model.ServiceEntry.MessageName)
 
 	err = controller.Apply(change)
 	g.Expect(err).ToNot(gomega.HaveOccurred())
 
-	c, exist := controller.Get("gateway", "some-gateway", "")
-	g.Expect(c).ToNot(gomega.BeNil())
-	g.Expect(exist).To(gomega.BeTrue())
-	g.Expect(c.Name).To(gomega.Equal(expectedConfig.Name))
-	g.Expect(c.Type).To(gomega.Equal(expectedConfig.Type))
-	g.Expect(c.Spec).To(gomega.Equal(message))
+	services, err := controller.Services()
+	g.Expect(err).ToNot(gomega.HaveOccurred())
+	g.Expect(len(services)).To(gomega.Equal(1))
 }
 
 func makeMessage(value []byte, responseMessageName string) (proto.Message, error) {
@@ -377,17 +226,19 @@ func makeMessage(value []byte, responseMessageName string) (proto.Message, error
 	return nil, err
 }
 
-func makeChange(resource proto.Message, name, responseMessageName string) *mcpclient.Change {
-	return &mcpclient.Change{
-		MessageName: responseMessageName,
-		Objects: []*mcpclient.Object{
-			{
+func convert(resources []proto.Message, names []string, responseMessageName string) *mcpclient.Change {
+	out := new(mcpclient.Change)
+	out.MessageName = responseMessageName
+	for i, res := range resources {
+		out.Objects = append(out.Objects,
+			&mcpclient.Object{
 				MessageName: responseMessageName,
 				Metadata: &mcp.Metadata{
-					Name: name,
+					Name: names[i],
 				},
-				Resource: resource,
+				Resource: res,
 			},
-		},
+		)
 	}
+	return out
 }

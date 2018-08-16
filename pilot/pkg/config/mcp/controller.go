@@ -19,9 +19,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/gogo/protobuf/proto"
+	"istio.io/fortio/log"
 	"istio.io/istio/pilot/pkg/model"
 	mcpclient "istio.io/istio/pkg/mcp/client"
+	meta_v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 var (
@@ -30,37 +31,26 @@ var (
 	errUnsupported   = errors.New("this operation is not supported by mcp controller")
 )
 
-//go:generate counterfeiter -o fakes/logger.go --fake-name Logger . logger
-type logger interface {
-	Warnf(template string, args ...interface{})
-	Infof(template string, args ...interface{})
-}
-
 type CoreDataModel interface {
 	model.ConfigStoreCache
+	model.ServiceDiscovery
 	mcpclient.Updater
 }
 
-type changeEvent struct {
-	metaName       string
-	resource       proto.Message
-	descriptorType string
-}
-
 type Controller struct {
+	//	serviceEntryStore map[string]
 	configStore              map[string]map[string]*sync.Map
 	eventCh                  chan func(model.Config, model.Event)
-	updateCh                 chan changeEvent
 	descriptorsByMessageName map[string]model.ProtoSchema
-	logger                   logger
 }
 
-func NewController(logger logger) CoreDataModel {
+func NewController() CoreDataModel {
 	descriptorsByMessageName := make(map[string]model.ProtoSchema, len(model.IstioConfigTypes))
 	for _, config := range model.IstioConfigTypes {
 		descriptorsByMessageName[config.MessageName] = config
 	}
 
+	// Remove this when https://github.com/istio/istio/issues/7947 is done
 	configStore := make(map[string]map[string]*sync.Map)
 	for _, typ := range model.IstioConfigTypes.Types() {
 		configStore[typ] = make(map[string]*sync.Map)
@@ -68,66 +58,12 @@ func NewController(logger logger) CoreDataModel {
 	return &Controller{
 		configStore:              configStore,
 		eventCh:                  make(chan func(model.Config, model.Event)),
-		updateCh:                 make(chan changeEvent),
 		descriptorsByMessageName: descriptorsByMessageName,
-		logger: logger,
 	}
-}
-
-func (c *Controller) Run(stop <-chan struct{}) {
-	for {
-		select {
-		case <-stop:
-			if _, ok := <-c.eventCh; ok {
-				close(c.eventCh)
-			}
-			return
-		case event, ok := <-c.eventCh:
-			if ok {
-				// TODO: do we need to call the events with any other args?
-				event(model.Config{}, model.EventUpdate)
-			}
-		case change, ok := <-c.updateCh:
-			if ok {
-				conf, exists := c.Get(change.descriptorType, change.metaName, "")
-				if exists {
-					conf.Spec = change.resource
-					// handle the error by inserting it in a chan
-					c.Update(*conf)
-				}
-			}
-		}
-	}
-}
-
-func (c *Controller) RegisterEventHandler(typ string, handler func(model.Config, model.Event)) {
-	c.eventCh <- handler
 }
 
 func (c *Controller) ConfigDescriptor() model.ConfigDescriptor {
 	return model.IstioConfigTypes
-}
-
-func (c *Controller) Get(typ, name, namespace string) (*model.Config, bool) {
-	_, ok := c.configStore[typ]
-	if !ok {
-		c.logger.Infof("Get: config not found for the type %s", typ)
-		return nil, false
-	}
-
-	ns, exists := c.configStore[typ][namespace]
-	if !exists {
-		c.logger.Infof("Get: config not found for the type %s", typ)
-		return nil, false
-	}
-
-	out, exists := ns.Load(name)
-	if !exists {
-		return nil, false
-	}
-	config := out.(model.Config)
-
-	return &config, true
 }
 
 func (c *Controller) List(typ, namespace string) ([]model.Config, error) {
@@ -137,7 +73,7 @@ func (c *Controller) List(typ, namespace string) ([]model.Config, error) {
 	}
 	data, exists := c.configStore[typ]
 	if !exists {
-		c.logger.Infof("List: config not found for the type %s", typ)
+		log.Infof("List: config not found for the type %s", typ)
 		return nil, nil
 	}
 	out := make([]model.Config, 0, len(c.configStore[typ]))
@@ -161,37 +97,97 @@ func (c *Controller) List(typ, namespace string) ([]model.Config, error) {
 	return out, nil
 }
 
+// TODO: add to the configstore if it does not exist
+func (c *Controller) Apply(change *mcpclient.Change) error {
+	for _, obj := range change.Objects {
+		descriptor, ok := c.descriptorsByMessageName[change.MessageName]
+		if !ok {
+			return fmt.Errorf("Apply: type not supported %s", change.MessageName)
+		}
+
+		conf := model.Config{
+			ConfigMeta: model.ConfigMeta{
+				Type:              descriptor.Type,
+				Group:             descriptor.Group,
+				Version:           descriptor.Version,
+				Name:              obj.Metadata.Name,
+				CreationTimestamp: meta_v1.Time{},
+			},
+			Spec: obj.Resource,
+		}
+		_, err := c.create(conf)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// TODO: pending https://github.com/istio/istio/issues/7947
+func (c *Controller) HasSynced() bool {
+	// TODO:The configStore already populated with all the keys to avoid nil map issue
+	if len(c.configStore) == 0 {
+		return false
+	}
+	for _, descriptor := range c.ConfigDescriptor() {
+		if _, ok := c.configStore[descriptor.Type]; !ok {
+			return false
+		}
+
+	}
+	return true
+}
+
+func (c *Controller) Run(stop <-chan struct{}) {
+	log.Warnf("Run: %s", errUnsupported)
+}
+
+func (c *Controller) RegisterEventHandler(typ string, handler func(model.Config, model.Event)) {
+	log.Warnf("RegisterEventHandler: %s", errUnsupported)
+}
+
+func (c *Controller) Get(typ, name, namespace string) (*model.Config, bool) {
+	log.Warnf("Get: %s", errUnsupported)
+	return nil, false
+}
+
 func (c *Controller) Update(config model.Config) (newRevision string, err error) {
-	typ := config.Type
-	schema, ok := c.ConfigDescriptor().GetByType(typ)
-	if !ok {
-		return "", errors.New(fmt.Sprintf("Update: unknown type %s", typ))
-	}
-	if err := schema.Validate(config.Name, config.Namespace, config.Spec); err != nil {
-		return "", err
-	}
-
-	ns, exists := c.configStore[typ][config.Namespace]
-	if !exists {
-		return "", errNotFound
-	}
-
-	oldConfig, exists := ns.Load(config.Name)
-	if !exists {
-		return "", errNotFound
-	}
-
-	if config.ResourceVersion != oldConfig.(model.Config).ResourceVersion {
-		return "", errors.New("old revision")
-	}
-
-	rev := time.Now().String()
-	config.ResourceVersion = rev
-	ns.Store(config.Name, config)
-	return rev, nil
+	log.Warnf("Update: %s", errUnsupported)
+	return "", errUnsupported
 }
 
 func (c *Controller) Create(config model.Config) (revision string, err error) {
+	log.Warnf("Create: %s", errUnsupported)
+	return "", errUnsupported
+}
+func (c *Controller) Delete(typ, name, namespace string) error {
+	return errUnsupported
+}
+
+func (c *Controller) get(typ, name, namespace string) (*model.Config, bool) {
+	fmt.Println("type:", typ, "name:", name, "namespace:", namespace)
+	_, ok := c.configStore[typ]
+	if !ok {
+		log.Infof("Get: config not found for the type %s", typ)
+		return nil, false
+	}
+
+	ns, exists := c.configStore[typ][namespace]
+	if !exists {
+		log.Infof("Get: config not found for the type %s", typ)
+		return nil, false
+	}
+
+	out, exists := ns.Load(name)
+	if !exists {
+		return nil, false
+	}
+	config := out.(model.Config)
+
+	return &config, true
+}
+
+func (c *Controller) create(config model.Config) (revision string, err error) {
 	typ := config.Type
 	schema, ok := c.ConfigDescriptor().GetByType(typ)
 	if !ok {
@@ -221,28 +217,4 @@ func (c *Controller) Create(config model.Config) (revision string, err error) {
 		return config.ResourceVersion, nil
 	}
 	return "", errAlreadyExists
-}
-
-func (c *Controller) Apply(change *mcpclient.Change) error {
-	for _, obj := range change.Objects {
-		descriptor, ok := c.descriptorsByMessageName[change.MessageName]
-		if !ok {
-			return fmt.Errorf("Apply: type not supported %s", change.MessageName)
-		}
-
-		c.updateCh <- changeEvent{
-			metaName:       obj.Metadata.Name,
-			resource:       obj.Resource,
-			descriptorType: descriptor.Type,
-		}
-	}
-	return nil
-}
-
-func (c *Controller) HasSynced() bool {
-	return true
-}
-
-func (c *Controller) Delete(typ, name, namespace string) error {
-	return errUnsupported
 }

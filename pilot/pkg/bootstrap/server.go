@@ -456,13 +456,10 @@ func (s *Server) initConfigController(args *PilotArgs) error {
 		for _, model := range model.IstioConfigTypes {
 			supportedTypes = append(supportedTypes, model.MessageName)
 		}
+
 		log.Infof("mcp client initialized with supported types: %+v\n", supportedTypes)
-		logger := log.RegisterScope("coredatamodel", "mcp controller debugging", 0)
-		mcpController := coredatamodel.NewController(logger)
-		s.addStartFunc(func(stop <-chan struct{}) error {
-			go mcpController.Run(stop)
-			return nil
-		})
+		mcpController := coredatamodel.NewController()
+		ctx, cancel := context.WithCancel(context.Background())
 
 		for _, addr := range mcpServerAddrs {
 			// TODO: make this a secure connection before shipping
@@ -476,7 +473,6 @@ func (s *Server) initConfigController(args *PilotArgs) error {
 			mcpClient := mcpclient.New(cl, supportedTypes, mcpController, clientNodeID, map[string]string{})
 
 			s.addStartFunc(func(stop <-chan struct{}) error {
-				ctx, cancel := context.WithCancel(context.Background())
 				go mcpClient.Run(ctx)
 				go func() {
 					<-stop

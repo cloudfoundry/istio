@@ -15,7 +15,9 @@ package coredatamodel_test
 
 import (
 	"fmt"
+	"sort"
 	"testing"
+	"time"
 
 	"github.com/gogo/protobuf/proto"
 	google_protobuf "github.com/gogo/protobuf/types"
@@ -181,12 +183,50 @@ func TestApplyValidType(t *testing.T) {
 	g.Expect(c[0].Spec).To(gomega.Equal(message))
 }
 
+func TestGetService(t *testing.T) {
+	g := gomega.NewGomegaWithT(t)
+	controller := coredatamodel.NewController()
+
+	hostname := "something.example.com"
+	serviceEntry := &networking.ServiceEntry{
+		Hosts:     []string{hostname},
+		Addresses: []string{"172.217.0.0/32"},
+		Ports: []*networking.Port{
+			{Number: 444, Name: "tcp-444", Protocol: "tcp"},
+		},
+		Location:   networking.ServiceEntry_MESH_EXTERNAL,
+		Resolution: networking.ServiceEntry_NONE,
+	}
+
+	marshaledServiceEntry, err := proto.Marshal(serviceEntry)
+	g.Expect(err).ToNot(gomega.HaveOccurred())
+
+	message, err := makeMessage(marshaledServiceEntry, model.ServiceEntry.MessageName)
+	g.Expect(err).ToNot(gomega.HaveOccurred())
+
+	change := convert([]proto.Message{message}, []string{"some-service-entry"}, model.ServiceEntry.MessageName)
+
+	err = controller.Apply(change)
+	g.Expect(err).ToNot(gomega.HaveOccurred())
+
+	service, err := controller.GetService(model.Hostname(hostname))
+	g.Expect(err).ToNot(gomega.HaveOccurred())
+
+	g.Expect(service.Hostname).To(gomega.Equal(model.Hostname(serviceEntry.Hosts[0])))
+	g.Expect(service.Address).To(gomega.Equal("172.217.0.0"))
+	g.Expect(service.Ports[0]).To(gomega.Equal(convertPort(serviceEntry.Ports[0])))
+	g.Expect(service.Resolution).To(gomega.Equal(model.Passthrough))
+	g.Expect(service.MeshExternal).To(gomega.BeTrue())
+	g.Expect(service.Attributes.Name).To(gomega.Equal(serviceEntry.Hosts[0]))
+	g.Expect(service.Attributes.Namespace).To(gomega.Equal(""))
+}
+
 func TestServices(t *testing.T) {
 	g := gomega.NewGomegaWithT(t)
 	controller := coredatamodel.NewController()
 
 	serviceEntry := &networking.ServiceEntry{
-		Hosts:     []string{"example.com"},
+		Hosts:     []string{"something.example.com"},
 		Addresses: []string{"172.217.0.0/32"},
 		Ports: []*networking.Port{
 			{Number: 444, Name: "tcp-444", Protocol: "tcp"},
@@ -217,6 +257,162 @@ func TestServices(t *testing.T) {
 	g.Expect(service.MeshExternal).To(gomega.BeTrue())
 	g.Expect(service.Attributes.Name).To(gomega.Equal(serviceEntry.Hosts[0]))
 	g.Expect(service.Attributes.Namespace).To(gomega.Equal(""))
+}
+
+func TestInstances(t *testing.T) {
+	g := gomega.NewGomegaWithT(t)
+	controller := coredatamodel.NewController()
+
+	hostname := "something.example.com"
+	serviceEntry := &networking.ServiceEntry{
+		Hosts:     []string{hostname},
+		Addresses: []string{"172.217.0.0"},
+		Ports: []*networking.Port{
+			{Number: 444, Name: "tcp-444", Protocol: "tcp"},
+		},
+		Location:   networking.ServiceEntry_MESH_EXTERNAL,
+		Resolution: networking.ServiceEntry_DNS,
+	}
+
+	marshaledServiceEntry, err := proto.Marshal(serviceEntry)
+	g.Expect(err).ToNot(gomega.HaveOccurred())
+
+	message, err := makeMessage(marshaledServiceEntry, model.ServiceEntry.MessageName)
+	g.Expect(err).ToNot(gomega.HaveOccurred())
+
+	change := convert([]proto.Message{message}, []string{"some-service-entry"}, model.ServiceEntry.MessageName)
+
+	err = controller.Apply(change)
+	g.Expect(err).ToNot(gomega.HaveOccurred())
+
+	serviceInstances, err := controller.Instances(model.Hostname(hostname), []string{"444"}, nil)
+	g.Expect(err).ToNot(gomega.HaveOccurred())
+	g.Expect(len(serviceInstances)).To(gomega.Equal(1))
+	instance := serviceInstances[0]
+
+	desiredEndpoint := model.NetworkEndpoint{
+		Address:     hostname,
+		Port:        444,
+		ServicePort: convertPort(serviceEntry.Ports[0]),
+	}
+
+	g.Expect(instance.Endpoint).To(gomega.Equal(desiredEndpoint))
+	g.Expect(instance.Labels).To(gomega.BeNil())
+	g.Expect(instance.Service.Hostname).To(gomega.Equal(model.Hostname(serviceEntry.Hosts[0])))
+	g.Expect(instance.Service.Address).To(gomega.Equal("172.217.0.0"))
+	g.Expect(instance.Service.Ports[0]).To(gomega.Equal(convertPort(serviceEntry.Ports[0])))
+	g.Expect(instance.Service.Resolution).To(gomega.Equal(model.DNSLB))
+	g.Expect(instance.Service.MeshExternal).To(gomega.BeTrue())
+	g.Expect(instance.Service.Attributes.Name).To(gomega.Equal(serviceEntry.Hosts[0]))
+	g.Expect(instance.Service.Attributes.Namespace).To(gomega.Equal(""))
+}
+
+func TestInstancesWithEndpoints(t *testing.T) {
+	g := gomega.NewGomegaWithT(t)
+	controller := coredatamodel.NewController()
+	serviceEntry := tcpDNS
+
+	marshaledServiceEntry, err := proto.Marshal(serviceEntry)
+	g.Expect(err).ToNot(gomega.HaveOccurred())
+
+	message, err := makeMessage(marshaledServiceEntry, model.ServiceEntry.MessageName)
+	g.Expect(err).ToNot(gomega.HaveOccurred())
+
+	change := convert([]proto.Message{message}, []string{"some-service-entry"}, model.ServiceEntry.MessageName)
+
+	err = controller.Apply(change)
+	g.Expect(err).ToNot(gomega.HaveOccurred())
+
+	actualServiceInstances, err := controller.Instances("tcpdns.com", []string{"444"}, nil)
+	g.Expect(err).ToNot(gomega.HaveOccurred())
+	g.Expect(len(actualServiceInstances)).To(gomega.Equal(2))
+
+	port := &networking.Port{
+		Number:   444,
+		Name:     "tcp-444",
+		Protocol: "tcp",
+	}
+	instanceOne := makeInstance(serviceEntry, "lon.google.com", 444, port, nil, time.Now())
+	instanceTwo := makeInstance(serviceEntry, "in.google.com", 444, port, nil, time.Now())
+	expectedServiceInstances := []*model.ServiceInstance{instanceOne, instanceTwo}
+
+	sortServiceInstances(actualServiceInstances)
+	sortServiceInstances(expectedServiceInstances)
+	for i, actualInstance := range actualServiceInstances {
+		g.Expect(actualInstance.Endpoint).To(gomega.Equal(expectedServiceInstances[i].Endpoint))
+		g.Expect(actualInstance.Labels).To(gomega.BeNil())
+		g.Expect(actualInstance.Service.Hostname).To(gomega.Equal(model.Hostname(serviceEntry.Hosts[0])))
+		g.Expect(actualInstance.Service.Ports[0]).To(gomega.Equal(convertPort(serviceEntry.Ports[0])))
+		g.Expect(actualInstance.Service.Resolution).To(gomega.Equal(model.DNSLB))
+		g.Expect(actualInstance.Service.MeshExternal).To(gomega.BeTrue())
+		g.Expect(actualInstance.Service.Attributes.Name).To(gomega.Equal(serviceEntry.Hosts[0]))
+		g.Expect(actualInstance.Service.Attributes.Namespace).To(gomega.Equal(""))
+		g.Expect(actualInstance.Service.Address).To(gomega.Equal(expectedServiceInstances[i].Service.Address))
+	}
+}
+
+func sortServiceInstances(instances []*model.ServiceInstance) {
+	labelsToSlice := func(labels model.Labels) []string {
+		out := make([]string, 0, len(labels))
+		for k, v := range labels {
+			out = append(out, fmt.Sprintf("%s=%s", k, v))
+		}
+		sort.Strings(out)
+		return out
+	}
+
+	sort.Slice(instances, func(i, j int) bool {
+		if instances[i].Service.Hostname == instances[j].Service.Hostname {
+			if instances[i].Endpoint.Port == instances[j].Endpoint.Port {
+				if instances[i].Endpoint.Address == instances[j].Endpoint.Address {
+					if len(instances[i].Labels) == len(instances[j].Labels) {
+						iLabels := labelsToSlice(instances[i].Labels)
+						jLabels := labelsToSlice(instances[j].Labels)
+						for k := range iLabels {
+							if iLabels[k] < jLabels[k] {
+								return true
+							}
+						}
+					}
+					return len(instances[i].Labels) < len(instances[j].Labels)
+				}
+				return instances[i].Endpoint.Address < instances[j].Endpoint.Address
+			}
+			return instances[i].Endpoint.Port < instances[j].Endpoint.Port
+		}
+		return instances[i].Service.Hostname < instances[j].Service.Hostname
+	})
+}
+
+func makeInstance(serviceEntry *networking.ServiceEntry, address string, port int,
+	svcPort *networking.Port, labels map[string]string, creationTime time.Time) *model.ServiceInstance {
+	family := model.AddressFamilyTCP
+	if port == 0 {
+		family = model.AddressFamilyUnix
+	}
+
+	services := coredatamodel.ConvertServices(serviceEntry, "", creationTime)
+	svc := services[0] // default
+	for _, s := range services {
+		if string(s.Hostname) == address {
+			svc = s
+			break
+		}
+	}
+	return &model.ServiceInstance{
+		Service: svc,
+		Endpoint: model.NetworkEndpoint{
+			Family:  family,
+			Address: address,
+			Port:    port,
+			ServicePort: &model.Port{
+				Name:     svcPort.Name,
+				Port:     int(svcPort.Number),
+				Protocol: model.ParseProtocol(svcPort.Protocol),
+			},
+		},
+		Labels: model.Labels(labels),
+	}
 }
 
 func convertPort(port *networking.Port) *model.Port {
@@ -258,3 +454,14 @@ func convert(resources []proto.Message, names []string, responseMessageName stri
 	}
 	return out
 }
+
+// Test Cases:
+// httpStatic
+// tcpStatic
+// httpDNS
+// httpDNSNoEndpoints
+// tcpDNS
+// httpNoneInternal
+// tcpNoneInternal
+// multiAddrInternal
+// udsLocal

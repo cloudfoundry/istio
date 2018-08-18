@@ -639,6 +639,9 @@ func hasKubeRegistry(args *PilotArgs) bool {
 	return false
 }
 
+func (s *Server) initMCPRegistry(serviceControllers *aggregate.Controller) {
+}
+
 // initServiceControllers creates and initializes the service controllers
 func (s *Server) initServiceControllers(args *PilotArgs) error {
 	serviceControllers := aggregate.NewController()
@@ -652,6 +655,8 @@ func (s *Server) initServiceControllers(args *PilotArgs) error {
 		registered[serviceRegistry] = true
 		log.Infof("Adding %s registry adapter", serviceRegistry)
 		switch serviceRegistry {
+		case serviceregistry.MCPRegistry:
+			s.initMCPRegistry(serviceControllers)
 		case serviceregistry.ConfigRegistry:
 			s.initConfigRegistry(serviceControllers)
 		case serviceregistry.MockRegistry:

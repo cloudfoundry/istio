@@ -16,7 +16,6 @@ package coredatamodel
 import (
 	"errors"
 	"fmt"
-	"net"
 	"sync"
 	"time"
 
@@ -35,8 +34,10 @@ var (
 
 type CoreDataModel interface {
 	model.ConfigStoreCache
-	Services() ([]*model.Service, error)
 	mcpclient.Updater
+	Services() ([]*model.Service, error)
+	GetService(model.Hostname) (*model.Service, error)
+	Instances(model.Hostname, []string, model.LabelsCollection) ([]*model.ServiceInstance, error)
 }
 
 type Controller struct {
@@ -166,65 +167,83 @@ func (c *Controller) Delete(typ, name, namespace string) error {
 	return errUnsupported
 }
 
+func (c *Controller) GetService(hostname model.Hostname) (*model.Service, error) {
+	services, err := c.Services()
+	if err != nil {
+		return nil, err
+	}
+	for _, service := range services {
+		if service.Hostname == hostname {
+			return service, nil
+		}
+	}
+
+	return nil, nil
+}
+
 func (c *Controller) Services() ([]*model.Service, error) {
 	serviceEntries, ok := c.configStore[model.ServiceEntry.Type]
 	if !ok {
 		return nil, nil
 	}
 
-	out := make([]*model.Service, 0, len(c.configStore[model.ServiceEntry.Type]))
+	services := make([]*model.Service, 0, len(c.configStore[model.ServiceEntry.Type]))
 	for _, ns := range serviceEntries {
 		ns.Range(func(key, value interface{}) bool {
 			config := value.(model.Config)
 			se := config.Spec.(*networking.ServiceEntry)
 
-			svcPorts := make(model.PortList, 0, len(se.Ports))
-			for _, port := range se.Ports {
-				svcPorts = append(svcPorts, convertPort(port))
-			}
-
-			var resolution model.Resolution
-			switch se.Resolution {
-			case networking.ServiceEntry_NONE:
-				resolution = model.Passthrough
-			case networking.ServiceEntry_DNS:
-				resolution = model.DNSLB
-			case networking.ServiceEntry_STATIC:
-				resolution = model.ClientSideLB
-			}
-
-			for _, host := range se.GetHosts() {
-				for _, address := range se.GetAddresses() {
-					var newAddress string
-					if ip, _, cidrErr := net.ParseCIDR(address); cidrErr == nil {
-						newAddress = ip.String()
-					} else if net.ParseIP(address) != nil {
-						newAddress = address
-					} else {
-						newAddress = model.UnspecifiedIP
-					}
-
-					out = append(out, &model.Service{
-						CreationTime: time.Now(),
-						MeshExternal: se.GetLocation() == networking.ServiceEntry_MESH_EXTERNAL,
-						Hostname:     model.Hostname(host),
-						Address:      newAddress,
-						Ports:        svcPorts,
-						Resolution:   resolution,
-						Attributes: model.ServiceAttributes{
-							Name:      host,
-							Namespace: config.Namespace,
-						},
-					})
-				}
-			}
-
+			services = append(services, ConvertServices(se, config.Namespace, time.Now())...)
 			return true
 		})
 	}
 
-	return out, nil
+	return services, nil
 }
+
+func (c *Controller) Instances(hostname model.Hostname, ports []string,
+	labels model.LabelsCollection) ([]*model.ServiceInstance, error) {
+
+	serviceEntries, ok := c.configStore[model.ServiceEntry.Type]
+	if !ok {
+		return nil, nil
+	}
+
+	instances := []*model.ServiceInstance{}
+	for _, ns := range serviceEntries {
+		ns.Range(func(key, value interface{}) bool {
+			config := value.(model.Config)
+			se := config.Spec.(*networking.ServiceEntry)
+
+			instances = append(instances, ConvertInstances(se, config.Namespace, time.Now())...)
+			return true
+		})
+	}
+
+	return instances, nil
+}
+
+//func (d *ServiceEntryStore) Instances(hostname model.Hostname, ports []string,
+//	labels model.LabelsCollection) ([]*model.ServiceInstance, error) {
+//	portMap := make(map[string]bool)
+//	for _, port := range ports {
+//		portMap[port] = true
+//	}
+//
+//	out := []*model.ServiceInstance{}
+//	for _, config := range d.store.ServiceEntries() {
+//		serviceEntry := config.Spec.(*networking.ServiceEntry)
+//		for _, instance := range convertInstances(serviceEntry, config.CreationTimestamp.Time) {
+//			if instance.Service.Hostname == hostname &&
+//				labels.HasSubsetOf(instance.Labels) &&
+//				portMatchEnvoyV1(instance, portMap) {
+//				out = append(out, instance)
+//			}
+//		}
+//	}
+//
+//	return out, nil
+//}
 
 func convertPort(port *networking.Port) *model.Port {
 	return &model.Port{

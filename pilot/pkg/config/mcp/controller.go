@@ -41,7 +41,6 @@ type CoreDataModel interface {
 }
 
 type Controller struct {
-	//	serviceEntryStore map[string]
 	configStore              map[string]map[string]*sync.Map
 	eventCh                  chan func(model.Config, model.Event)
 	descriptorsByMessageName map[string]model.ProtoSchema
@@ -215,7 +214,8 @@ func (c *Controller) Instances(hostname model.Hostname, ports []string,
 			config := value.(model.Config)
 			se := config.Spec.(*networking.ServiceEntry)
 
-			instances = append(instances, ConvertInstances(se, config.Namespace, time.Now())...)
+			convertedInstances := ConvertInstances(se, config.Namespace, time.Now())
+			instances = append(instances, convertedInstances...)
 			return true
 		})
 	}

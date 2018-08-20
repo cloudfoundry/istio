@@ -276,7 +276,7 @@ func TestConvertService(t *testing.T) {
 
 	g := gomega.NewGomegaWithT(t)
 	for _, tt := range serviceTests {
-		t.Logf("for %+v", tt.serviceEntryInput)
+		t.Log(strings.Join(tt.serviceEntryInput.Hosts, "_"))
 		convertedService := coredatamodel.ConvertServices(tt.serviceEntryInput, defaultNamespace, tnow)
 		compareServices(g, tt.serviceEntryInput, convertedService, tt.expectedServices)
 	}
@@ -285,25 +285,25 @@ func TestConvertService(t *testing.T) {
 func TestConvertInstances(t *testing.T) {
 	tnow := time.Now()
 	serviceInstanceTests := []struct {
-		serviceEntryInput *networking.ServiceEntry
-		out               []*model.ServiceInstance
+		serviceEntryInput       *networking.ServiceEntry
+		expectedServiceInstance []*model.ServiceInstance
 	}{
 		{
 			// single instance with multiple ports
 			serviceEntryInput: httpNone,
 			// DNS type none means service should not have a registered instance
-			out: []*model.ServiceInstance{},
+			expectedServiceInstance: []*model.ServiceInstance{},
 		},
 		{
 			// service entry tcp
 			serviceEntryInput: tcpNone,
 			// DNS type none means service should not have a registered instance
-			out: []*model.ServiceInstance{},
+			expectedServiceInstance: []*model.ServiceInstance{},
 		},
 		{
 			// service entry static
 			serviceEntryInput: httpStatic,
-			out: []*model.ServiceInstance{
+			expectedServiceInstance: []*model.ServiceInstance{
 				makeInstance(httpStatic, "2.2.2.2", 7080, httpStatic.Ports[0], nil, tnow),
 				makeInstance(httpStatic, "2.2.2.2", 18080, httpStatic.Ports[1], nil, tnow),
 				makeInstance(httpStatic, "3.3.3.3", 1080, httpStatic.Ports[0], nil, tnow),
@@ -315,7 +315,7 @@ func TestConvertInstances(t *testing.T) {
 		{
 			// service entry DNS with no endpoints
 			serviceEntryInput: httpDNSnoEndpoints,
-			out: []*model.ServiceInstance{
+			expectedServiceInstance: []*model.ServiceInstance{
 				makeInstance(httpDNSnoEndpoints, "google.com", 80, httpDNSnoEndpoints.Ports[0], nil, tnow),
 				makeInstance(httpDNSnoEndpoints, "google.com", 8080, httpDNSnoEndpoints.Ports[1], nil, tnow),
 				makeInstance(httpDNSnoEndpoints, "www.wikipedia.org", 80, httpDNSnoEndpoints.Ports[0], nil, tnow),
@@ -325,7 +325,7 @@ func TestConvertInstances(t *testing.T) {
 		{
 			// service entry dns
 			serviceEntryInput: httpDNS,
-			out: []*model.ServiceInstance{
+			expectedServiceInstance: []*model.ServiceInstance{
 				makeInstance(httpDNS, "us.google.com", 7080, httpDNS.Ports[0], nil, tnow),
 				makeInstance(httpDNS, "us.google.com", 18080, httpDNS.Ports[1], nil, tnow),
 				makeInstance(httpDNS, "uk.google.com", 1080, httpDNS.Ports[0], nil, tnow),
@@ -337,7 +337,7 @@ func TestConvertInstances(t *testing.T) {
 		{
 			// service entry tcp DNS
 			serviceEntryInput: tcpDNS,
-			out: []*model.ServiceInstance{
+			expectedServiceInstance: []*model.ServiceInstance{
 				makeInstance(tcpDNS, "lon.google.com", 444, tcpDNS.Ports[0], nil, tnow),
 				makeInstance(tcpDNS, "in.google.com", 444, tcpDNS.Ports[0], nil, tnow),
 			},
@@ -345,7 +345,7 @@ func TestConvertInstances(t *testing.T) {
 		{
 			// service entry tcp static
 			serviceEntryInput: tcpStatic,
-			out: []*model.ServiceInstance{
+			expectedServiceInstance: []*model.ServiceInstance{
 				makeInstance(tcpStatic, "1.1.1.1", 444, tcpStatic.Ports[0], nil, tnow),
 				makeInstance(tcpStatic, "2.2.2.2", 444, tcpStatic.Ports[0], nil, tnow),
 			},
@@ -353,7 +353,7 @@ func TestConvertInstances(t *testing.T) {
 		{
 			// service entry unix domain socket static
 			serviceEntryInput: udsLocal,
-			out: []*model.ServiceInstance{
+			expectedServiceInstance: []*model.ServiceInstance{
 				makeInstance(udsLocal, "/test/sock", 0, udsLocal.Ports[0], nil, tnow),
 			},
 		},
@@ -361,28 +361,40 @@ func TestConvertInstances(t *testing.T) {
 
 	g := gomega.NewGomegaWithT(t)
 	for _, tt := range serviceInstanceTests {
-		t.Run(strings.Join(tt.serviceEntryInput.Hosts, "_"), func(t *testing.T) {
-			instances := coredatamodel.ConvertInstances(tt.serviceEntryInput, defaultNamespace, tnow)
-			sortServiceInstances(instances)
-			sortServiceInstances(tt.out)
-			if err := compareServiceInstances(g, tt.serviceEntryInput, instances, tt.out); err != nil {
-				t.Fatal(err)
-			}
-		})
+		t.Log(strings.Join(tt.serviceEntryInput.Hosts, "_"))
+		instances := coredatamodel.ConvertInstances(tt.serviceEntryInput, defaultNamespace, tnow)
+		sortServiceInstances(instances)
+		sortServiceInstances(tt.expectedServiceInstance)
+		compareServiceInstances(g, instances, tt.expectedServiceInstance)
 	}
 }
 
-func compareServiceInstances(g *gomega.GomegaWithT, serviceEntry *networking.ServiceEntry, expectedServices, actualServices []*model.Service) {
-	for i, actualInstance := range actualServices {
-		g.Expect(actualInstance.Endpoint).To(gomega.Equal(expectedServices[i].Endpoint))
-		g.Expect(actualInstance.Labels).To(gomega.BeNil())
-		g.Expect(actualInstance.Service.Hostname).To(gomega.Equal(model.Hostname(serviceEntry.Hosts[0])))
-		g.Expect(actualInstance.Service.Ports[0]).To(gomega.Equal(convertPort(serviceEntry.Ports[0])))
-		g.Expect(actualInstance.Service.Resolution).To(gomega.Equal(model.DNSLB))
-		g.Expect(actualInstance.Service.MeshExternal).To(gomega.BeTrue())
-		g.Expect(actualInstance.Service.Attributes.Name).To(gomega.Equal(serviceEntry.Hosts[0]))
-		g.Expect(actualInstance.Service.Attributes.Namespace).To(gomega.Equal(""))
-		g.Expect(actualInstance.Service.Address).To(gomega.Equal(expectedServices[i].Service.Address))
+func compareServices(g *gomega.GomegaWithT, serviceEntry *networking.ServiceEntry, convertedServices, expectedServices []*model.Service) {
+	sortServices(convertedServices)
+	sortServices(expectedServices)
+
+	for i, service := range convertedServices {
+		g.Expect(service.Hostname).To(gomega.Equal(expectedServices[i].Hostname))
+		g.Expect(expectedServices[i].Address).Should(gomega.ContainSubstring(service.Address))
+		g.Expect(service.Ports).To(gomega.Equal(expectedServices[i].Ports))
+		g.Expect(service.Resolution).To(gomega.Equal(coredatamodel.ServiceResolutionMapping[serviceEntry.Resolution]))
+		g.Expect(service.MeshExternal).To(gomega.Equal(expectedServices[i].MeshExternal))
+		g.Expect(service.Attributes.Name).Should(gomega.Equal(expectedServices[i].Attributes.Name))
+		g.Expect(service.Attributes.Namespace).To(gomega.Equal(defaultNamespace))
+	}
+}
+
+func compareServiceInstances(g *gomega.GomegaWithT, actualServiceInstances, expectedServiceInstances []*model.ServiceInstance) {
+	for i, actualInstance := range actualServiceInstances {
+		g.Expect(actualInstance.Endpoint).To(gomega.Equal(expectedServiceInstances[i].Endpoint))
+		g.Expect(actualInstance.Labels).To(gomega.Equal(expectedServiceInstances[i].Labels))
+		g.Expect(actualInstance.Service.Hostname).To(gomega.Equal(expectedServiceInstances[i].Service.Hostname))
+		g.Expect(actualInstance.Service.Ports).To(gomega.Equal(expectedServiceInstances[i].Service.Ports))
+		g.Expect(actualInstance.Service.Resolution).To(gomega.Equal(expectedServiceInstances[i].Service.Resolution))
+		g.Expect(actualInstance.Service.MeshExternal).To(gomega.Equal(expectedServiceInstances[i].Service.MeshExternal))
+		g.Expect(actualInstance.Service.Attributes.Name).To(gomega.Equal(expectedServiceInstances[i].Service.Attributes.Name))
+		g.Expect(actualInstance.Service.Attributes.Namespace).To(gomega.Equal(defaultNamespace))
+		g.Expect(actualInstance.Service.Address).To(gomega.Equal(expectedServiceInstances[i].Service.Address))
 	}
 }
 
@@ -417,21 +429,6 @@ func sortServiceInstances(instances []*model.ServiceInstance) {
 		}
 		return instances[i].Service.Hostname < instances[j].Service.Hostname
 	})
-}
-
-func compareServices(g *gomega.GomegaWithT, serviceEntry *networking.ServiceEntry, convertedServices, expectedServices []*model.Service) {
-	sortServices(convertedServices)
-	sortServices(expectedServices)
-
-	for i, service := range convertedServices {
-		g.Expect(serviceEntry.Hosts).Should(gomega.ContainElement(string(service.Hostname)))
-		g.Expect(expectedServices[i].Address).Should(gomega.ContainSubstring(service.Address))
-		g.Expect(service.Ports[0]).To(gomega.Equal(convertPort(serviceEntry.Ports[0])))
-		g.Expect(service.Resolution).To(gomega.Equal(coredatamodel.ServiceResolutionMapping[serviceEntry.Resolution]))
-		g.Expect(service.MeshExternal).To(gomega.Equal(expectedServices[i].MeshExternal))
-		g.Expect(serviceEntry.Hosts).Should(gomega.ContainElement(service.Attributes.Name))
-		g.Expect(service.Attributes.Namespace).To(gomega.Equal(defaultNamespace))
-	}
 }
 
 func sortServices(services []*model.Service) {
@@ -493,33 +490,33 @@ func convertPortNameToProtocol(name string) model.Protocol {
 	return model.ParseProtocol(prefix)
 }
 
-// func makeInstance(serviceEntry *networking.ServiceEntry, address string, port int,
-// 	svcPort *networking.Port, labels map[string]string, creationTime time.Time) *model.ServiceInstance {
-// 	family := model.AddressFamilyTCP
-// 	if port == 0 {
-// 		family = model.AddressFamilyUnix
-// 	}
+func makeInstance(serviceEntry *networking.ServiceEntry, address string, port int,
+	svcPort *networking.Port, labels map[string]string, creationTime time.Time) *model.ServiceInstance {
+	family := model.AddressFamilyTCP
+	if port == 0 {
+		family = model.AddressFamilyUnix
+	}
 
-// 	expectedServices := coredatamodel.ConvertServices(serviceEntry, defaultNamespace, creationTime)
-// 	svc := expectedServices[0] // default
-// 	for _, s := range expectedServices {
-// 		if string(s.Hostname) == address {
-// 			svc = s
-// 			break
-// 		}
-// 	}
-// 	return &model.ServiceInstance{
-// 		Service: svc,
-// 		Endpoint: model.NetworkEndpoint{
-// 			Family:  family,
-// 			Address: address,
-// 			Port:    port,
-// 			ServicePort: &model.Port{
-// 				Name:     svcPort.Name,
-// 				Port:     int(svcPort.Number),
-// 				Protocol: model.ParseProtocol(svcPort.Protocol),
-// 			},
-// 		},
-// 		Labels: model.Labels(labels),
-// 	}
-// }
+	services := coredatamodel.ConvertServices(serviceEntry, "", creationTime)
+	svc := services[0] // default
+	for _, s := range services {
+		if string(s.Hostname) == address {
+			svc = s
+			break
+		}
+	}
+	return &model.ServiceInstance{
+		Service: svc,
+		Endpoint: model.NetworkEndpoint{
+			Family:  family,
+			Address: address,
+			Port:    port,
+			ServicePort: &model.Port{
+				Name:     svcPort.Name,
+				Port:     int(svcPort.Number),
+				Protocol: model.ParseProtocol(svcPort.Protocol),
+			},
+		},
+		Labels: model.Labels(labels),
+	}
+}

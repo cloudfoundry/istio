@@ -15,7 +15,6 @@ package coredatamodel_test
 
 import (
 	"fmt"
-	"sort"
 	"testing"
 	"time"
 
@@ -95,7 +94,7 @@ func TestListValidType(t *testing.T) {
 	message2, err := makeMessage(marshaledGateway2, model.Gateway.MessageName)
 	g.Expect(err).ToNot(gomega.HaveOccurred())
 
-	change := convert(
+	change := convertToChange(
 		[]proto.Message{message1, message2},
 		[]string{"some-gateway1", "some-gateway2"},
 		model.Gateway.MessageName)
@@ -143,7 +142,7 @@ func TestApplyInvalidType(t *testing.T) {
 	message, err := makeMessage(marshaledGateway, model.Gateway.MessageName)
 	g.Expect(err).ToNot(gomega.HaveOccurred())
 
-	change := convert([]proto.Message{message}, []string{"some-gateway"}, "bad-type")
+	change := convertToChange([]proto.Message{message}, []string{"some-gateway"}, "bad-type")
 
 	err = controller.Apply(change)
 	g.Expect(err).To(gomega.HaveOccurred())
@@ -171,7 +170,7 @@ func TestApplyValidType(t *testing.T) {
 	message, err := makeMessage(marshaledGateway, model.Gateway.MessageName)
 	g.Expect(err).ToNot(gomega.HaveOccurred())
 
-	change := convert([]proto.Message{message}, []string{"some-gateway"}, model.Gateway.MessageName)
+	change := convertToChange([]proto.Message{message}, []string{"some-gateway"}, model.Gateway.MessageName)
 	err = controller.Apply(change)
 	g.Expect(err).ToNot(gomega.HaveOccurred())
 
@@ -204,7 +203,7 @@ func TestGetService(t *testing.T) {
 	message, err := makeMessage(marshaledServiceEntry, model.ServiceEntry.MessageName)
 	g.Expect(err).ToNot(gomega.HaveOccurred())
 
-	change := convert([]proto.Message{message}, []string{"some-service-entry"}, model.ServiceEntry.MessageName)
+	change := convertToChange([]proto.Message{message}, []string{"some-service-entry"}, model.ServiceEntry.MessageName)
 
 	err = controller.Apply(change)
 	g.Expect(err).ToNot(gomega.HaveOccurred())
@@ -241,7 +240,7 @@ func TestServices(t *testing.T) {
 	message, err := makeMessage(marshaledServiceEntry, model.ServiceEntry.MessageName)
 	g.Expect(err).ToNot(gomega.HaveOccurred())
 
-	change := convert([]proto.Message{message}, []string{"some-service-entry"}, model.ServiceEntry.MessageName)
+	change := convertToChange([]proto.Message{message}, []string{"some-service-entry"}, model.ServiceEntry.MessageName)
 
 	err = controller.Apply(change)
 	g.Expect(err).ToNot(gomega.HaveOccurred())
@@ -280,7 +279,7 @@ func TestInstances(t *testing.T) {
 	message, err := makeMessage(marshaledServiceEntry, model.ServiceEntry.MessageName)
 	g.Expect(err).ToNot(gomega.HaveOccurred())
 
-	change := convert([]proto.Message{message}, []string{"some-service-entry"}, model.ServiceEntry.MessageName)
+	change := convertToChange([]proto.Message{message}, []string{"some-service-entry"}, model.ServiceEntry.MessageName)
 
 	err = controller.Apply(change)
 	g.Expect(err).ToNot(gomega.HaveOccurred())
@@ -318,7 +317,7 @@ func TestInstancesWithEndpoints(t *testing.T) {
 	message, err := makeMessage(marshaledServiceEntry, model.ServiceEntry.MessageName)
 	g.Expect(err).ToNot(gomega.HaveOccurred())
 
-	change := convert([]proto.Message{message}, []string{"some-service-entry"}, model.ServiceEntry.MessageName)
+	change := convertToChange([]proto.Message{message}, []string{"some-service-entry"}, model.ServiceEntry.MessageName)
 
 	err = controller.Apply(change)
 	g.Expect(err).ToNot(gomega.HaveOccurred())
@@ -351,70 +350,6 @@ func TestInstancesWithEndpoints(t *testing.T) {
 	}
 }
 
-func sortServiceInstances(instances []*model.ServiceInstance) {
-	labelsToSlice := func(labels model.Labels) []string {
-		out := make([]string, 0, len(labels))
-		for k, v := range labels {
-			out = append(out, fmt.Sprintf("%s=%s", k, v))
-		}
-		sort.Strings(out)
-		return out
-	}
-
-	sort.Slice(instances, func(i, j int) bool {
-		if instances[i].Service.Hostname == instances[j].Service.Hostname {
-			if instances[i].Endpoint.Port == instances[j].Endpoint.Port {
-				if instances[i].Endpoint.Address == instances[j].Endpoint.Address {
-					if len(instances[i].Labels) == len(instances[j].Labels) {
-						iLabels := labelsToSlice(instances[i].Labels)
-						jLabels := labelsToSlice(instances[j].Labels)
-						for k := range iLabels {
-							if iLabels[k] < jLabels[k] {
-								return true
-							}
-						}
-					}
-					return len(instances[i].Labels) < len(instances[j].Labels)
-				}
-				return instances[i].Endpoint.Address < instances[j].Endpoint.Address
-			}
-			return instances[i].Endpoint.Port < instances[j].Endpoint.Port
-		}
-		return instances[i].Service.Hostname < instances[j].Service.Hostname
-	})
-}
-
-func makeInstance(serviceEntry *networking.ServiceEntry, address string, port int,
-	svcPort *networking.Port, labels map[string]string, creationTime time.Time) *model.ServiceInstance {
-	family := model.AddressFamilyTCP
-	if port == 0 {
-		family = model.AddressFamilyUnix
-	}
-
-	services := coredatamodel.ConvertServices(serviceEntry, "", creationTime)
-	svc := services[0] // default
-	for _, s := range services {
-		if string(s.Hostname) == address {
-			svc = s
-			break
-		}
-	}
-	return &model.ServiceInstance{
-		Service: svc,
-		Endpoint: model.NetworkEndpoint{
-			Family:  family,
-			Address: address,
-			Port:    port,
-			ServicePort: &model.Port{
-				Name:     svcPort.Name,
-				Port:     int(svcPort.Number),
-				Protocol: model.ParseProtocol(svcPort.Protocol),
-			},
-		},
-		Labels: model.Labels(labels),
-	}
-}
-
 func convertPort(port *networking.Port) *model.Port {
 	return &model.Port{
 		Name:     port.Name,
@@ -438,7 +373,7 @@ func makeMessage(value []byte, responseMessageName string) (proto.Message, error
 	return nil, err
 }
 
-func convert(resources []proto.Message, names []string, responseMessageName string) *mcpclient.Change {
+func convertToChange(resources []proto.Message, names []string, responseMessageName string) *mcpclient.Change {
 	out := new(mcpclient.Change)
 	out.MessageName = responseMessageName
 	for i, res := range resources {

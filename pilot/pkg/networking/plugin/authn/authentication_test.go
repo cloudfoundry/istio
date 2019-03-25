@@ -529,12 +529,44 @@ func TestOnInboundFilterChains(t *testing.T) {
 		},
 		RequireClientCertificate: proto.BoolTrue,
 	}
+	customCertTlsContext := &auth.DownstreamTlsContext{
+		CommonTlsContext: &auth.CommonTlsContext{
+			TlsCertificates: []*auth.TlsCertificate{
+				{
+					CertificateChain: &core.DataSource{
+						Specifier: &core.DataSource_Filename{
+							Filename: "/custom-cert-chain.pem",
+						},
+					},
+					PrivateKey: &core.DataSource{
+						Specifier: &core.DataSource_Filename{
+							Filename: "/custom-key.pem",
+						},
+					},
+				},
+			},
+			ValidationContextType: &auth.CommonTlsContext_ValidationContext{
+				ValidationContext: &auth.CertificateValidationContext{
+					TrustedCa: &core.DataSource{
+						Specifier: &core.DataSource_Filename{
+							Filename: "/custom-root-cert.pem",
+						},
+					},
+				},
+			},
+			AlpnProtocols: []string{"h2", "http/1.1"},
+		},
+		RequireClientCertificate: proto.BoolTrue,
+	}
 	cases := []struct {
 		name              string
 		in                *authn.Policy
 		sdsUdsPath        string
 		useTrustworthyJwt bool
 		useNormalJwt      bool
+		mtlsCert          string
+		mtlsKey           string
+		mtlsRoot          string
 		expected          []plugin.FilterChain
 	}{
 		{
@@ -626,6 +658,29 @@ func TestOnInboundFilterChains(t *testing.T) {
 			},
 		},
 		{
+			name: "StrictMTLSCustomCerts",
+			in: &authn.Policy{
+				Peers: []*authn.PeerAuthenticationMethod{
+					{
+						Params: &authn.PeerAuthenticationMethod_Mtls{
+							Mtls: &authn.MutualTls{
+								Mode: authn.MutualTls_STRICT,
+							},
+						},
+					},
+				},
+			},
+			mtlsCert: "/custom-cert-chain.pem",
+			mtlsKey:  "/custom-key.pem",
+			mtlsRoot: "/custom-root-cert.pem",
+			// Only one filter chain with mTLS settings should be generated.
+			expected: []plugin.FilterChain{
+				{
+					TLSContext: customCertTlsContext,
+				},
+			},
+		},
+		{
 			name: "mTLS policy using SDS",
 			in: &authn.Policy{
 				Peers: []*authn.PeerAuthenticationMethod{
@@ -657,7 +712,7 @@ func TestOnInboundFilterChains(t *testing.T) {
 		},
 	}
 	for _, c := range cases {
-		if got := setupFilterChains(c.in, c.sdsUdsPath, c.useTrustworthyJwt, c.useNormalJwt, map[string]string{}); !reflect.DeepEqual(got, c.expected) {
+		if got := setupFilterChains(c.in, c.sdsUdsPath, c.useTrustworthyJwt, c.useNormalJwt, c.mtlsRoot, c.mtlsCert, c.mtlsKey, map[string]string{}); !reflect.DeepEqual(got, c.expected) {
 			t.Errorf("[%v] unexpected filter chains, got %v, want %v", c.name, got, c.expected)
 		}
 	}

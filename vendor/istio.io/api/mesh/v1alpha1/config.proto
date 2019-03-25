@@ -279,9 +279,13 @@ message MeshConfig {
   // Locality based load balancing distribution or failover settings.
   LocalityLoadBalancerSetting locality_lb_setting = 35;
 
+  // TODO: docs for these, and mention sds_uds_path has preference
+  string mtls_root = 36;
+  string mtls_cert = 37;
+  string mtls_key = 38;
 
   // $hide_from_docs
-  // Next available field number: 36
+  // Next available field number: 39
 }
 
 // ConfigSource describes information about a configuration store inside a

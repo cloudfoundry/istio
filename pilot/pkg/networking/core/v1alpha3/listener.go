@@ -517,6 +517,7 @@ func (configgen *ConfigGeneratorImpl) buildSidecarInboundListenerForPortOrUDS(li
 	}
 
 	for _, p := range configgen.Plugins {
+		log.Debug(pluginParams.Env.Mesh.MtlsKey)
 		chains := p.OnInboundFilterChains(pluginParams)
 		if len(chains) == 0 {
 			continue

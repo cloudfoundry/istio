@@ -520,18 +520,8 @@ var (
 		Gateway,
 		ServiceEntry,
 		DestinationRule,
-		EnvoyFilter,
 		Sidecar,
-		HTTPAPISpec,
-		HTTPAPISpecBinding,
-		QuotaSpec,
-		QuotaSpecBinding,
 		AuthenticationPolicy,
-		AuthenticationMeshPolicy,
-		ServiceRole,
-		ServiceRoleBinding,
-		RbacConfig,
-		ClusterRbacConfig,
 	}
 )
 
@@ -870,15 +860,22 @@ func (store *istioConfigStore) QuotaSpecByDestination(instance *ServiceInstance)
 
 func (store *istioConfigStore) AuthenticationPolicyByDestination(service *Service, port *Port) *Config {
 	if len(service.Attributes.Namespace) == 0 {
+		fmt.Println("BAILING DUE TO EMPTY NAMESPACES LOL")
 		return nil
 	}
 	namespace := service.Attributes.Namespace
-	specs, err := store.List(AuthenticationPolicy.Type, namespace)
+	fmt.Print("NAMESPACE LOL:")
+	fmt.Println(namespace)
+	specs, err := store.List(AuthenticationPolicy.Type, "")
 	if err != nil {
+		fmt.Print("BAILING DUE TO ERRORZ LOL:")
+		fmt.Println(err)
 		return nil
 	}
 	var out Config
 	currentMatchLevel := 0
+	fmt.Print("SPECS LOL:")
+	fmt.Println(specs)
 	for _, spec := range specs {
 		policy := spec.Spec.(*authn.Policy)
 		// Indicate if a policy matched to target destination:

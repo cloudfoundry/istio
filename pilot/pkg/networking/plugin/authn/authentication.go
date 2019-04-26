@@ -89,7 +89,11 @@ func GetMutualTLS(policy *authn.Policy) *authn.MutualTls {
 
 // setupFilterChains sets up filter chains based on authentication policy.
 func setupFilterChains(authnPolicy *authn.Policy, sdsUdsPath string, sdsUseTrustworthyJwt, sdsUseNormalJwt bool, meta map[string]string) []plugin.FilterChain {
+	fmt.Println("SETUPFILTERCHAINS lol!")
+
 	if authnPolicy == nil || len(authnPolicy.Peers) == 0 {
+		fmt.Println("BAILIN lol!")
+		fmt.Println(authnPolicy)
 		return nil
 	}
 	alpnIstioMatch := &ldsv2.FilterChainMatch{
@@ -110,6 +114,8 @@ func setupFilterChains(authnPolicy *authn.Policy, sdsUdsPath string, sdsUseTrust
 		},
 		RequireClientCertificate: protovalue.BoolTrue,
 	}
+	fmt.Println("••••••••••••••••")
+	fmt.Printf("sdsUdsPath lols: %+v", sdsUdsPath)
 	if sdsUdsPath == "" {
 		base := meta[pilot.BaseDir] + model.AuthCertsPath
 		tlsServerRootCert := model.GetOrDefaultFromMap(meta, model.NodeMetadataTLSServerRootCert, base+model.RootCertFilename)
@@ -133,6 +139,8 @@ func setupFilterChains(authnPolicy *authn.Policy, sdsUdsPath string, sdsUseTrust
 				},
 			},
 		}
+		fmt.Println("!!!!!!!!!!!!!!!!!!!! lols")
+		fmt.Printf("Setting auth.TlsCertificate to lols %+v\n", tls.CommonTlsContext.TlsCertificates)
 	} else {
 		tls.CommonTlsContext.TlsCertificateSdsSecretConfigs = []*auth.SdsSecretConfig{
 			model.ConstructSdsSecretConfig(model.SDSDefaultResourceName, sdsUdsPath, sdsUseTrustworthyJwt, sdsUseNormalJwt, meta),
@@ -144,20 +152,22 @@ func setupFilterChains(authnPolicy *authn.Policy, sdsUdsPath string, sdsUseTrust
 				ValidationContextSdsSecretConfig: model.ConstructSdsSecretConfig(model.SDSRootResourceName, sdsUdsPath, sdsUseTrustworthyJwt, sdsUseNormalJwt, meta),
 			},
 		}
+		fmt.Println("With sds uds lols")
 	}
 	mtls := GetMutualTLS(authnPolicy)
 	if mtls == nil {
+		fmt.Println("no mtls set lols")
 		return nil
 	}
 	if mtls.GetMode() == authn.MutualTls_STRICT {
-		log.Debug("Allow only istio mutual TLS traffic")
+		fmt.Println("Allow only istio mutual TLS traffic")
 		return []plugin.FilterChain{
 			{
 				TLSContext: tls,
 			}}
 	}
 	if mtls.GetMode() == authn.MutualTls_PERMISSIVE {
-		log.Debug("Allow both, ALPN istio and legacy traffic")
+		fmt.Println("Allow both, ALPN istio and legacy traffic")
 		return []plugin.FilterChain{
 			{
 				FilterChainMatch: alpnIstioMatch,
@@ -179,6 +189,7 @@ func setupFilterChains(authnPolicy *authn.Policy, sdsUdsPath string, sdsUseTrust
 
 // OnInboundFilterChains setups filter chains based on the authentication policy.
 func (Plugin) OnInboundFilterChains(in *plugin.InputParams) []plugin.FilterChain {
+	fmt.Println("OnInboundFilterChains lol!!!!!!!!!!!!!!!!!")
 	port := in.ServiceInstance.Endpoint.ServicePort
 	authnPolicy := model.GetConsolidateAuthenticationPolicy(in.Env.IstioConfigStore, in.ServiceInstance.Service, port)
 	return setupFilterChains(authnPolicy,

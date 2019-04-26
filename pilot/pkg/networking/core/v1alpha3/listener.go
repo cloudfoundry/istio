@@ -175,6 +175,7 @@ func (configgen *ConfigGeneratorImpl) BuildListeners(env *model.Environment, nod
 // buildSidecarListeners produces a list of listeners for sidecar proxies
 func (configgen *ConfigGeneratorImpl) buildSidecarListeners(env *model.Environment, node *model.Proxy,
 	push *model.PushContext) ([]*xdsapi.Listener, error) {
+	fmt.Println("buildSidecarListeners lol!")
 
 	mesh := env.Mesh
 
@@ -298,6 +299,7 @@ func (configgen *ConfigGeneratorImpl) buildSidecarListeners(env *model.Environme
 // configuration for co-located service proxyInstances.
 func (configgen *ConfigGeneratorImpl) buildSidecarInboundListeners(env *model.Environment, node *model.Proxy, push *model.PushContext,
 	proxyInstances []*model.ServiceInstance) []*xdsapi.Listener {
+	fmt.Println("buildSidecarInboundListeners lol!")
 
 	var listeners []*xdsapi.Listener
 	listenerMap := make(map[string]*inboundListenerEntry)
@@ -456,6 +458,7 @@ func (configgen *ConfigGeneratorImpl) buildSidecarInboundListeners(env *model.En
 // for a given port or unix domain socket
 func (configgen *ConfigGeneratorImpl) buildSidecarInboundListenerForPortOrUDS(listenerOpts buildListenerOpts,
 	pluginParams *plugin.InputParams, listenerMap map[string]*inboundListenerEntry) *xdsapi.Listener {
+	fmt.Println("buildSidecarInboundListenerForPortOrUDS lol!")
 
 	// Local service instances can be accessed through one of four addresses:
 	// unix domain socket, localhost, endpoint IP, and service

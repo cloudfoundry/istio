@@ -65,6 +65,8 @@ var JwtKeyResolver = newJwksResolver(JwtPubKeyExpireDuration, JwtPubKeyEvictionD
 // service specified by hostname and port, if defined. It also tries to resolve JWKS URI if necessary.
 func GetConsolidateAuthenticationPolicy(store IstioConfigStore, service *Service, port *Port) *authn.Policy {
 	config := store.AuthenticationPolicyByDestination(service, port)
+	fmt.Print("GetConsolidateAuthenticationPolicy lol: ")
+	fmt.Println(config)
 	if config != nil {
 		policy := config.Spec.(*authn.Policy)
 		if err := JwtKeyResolver.SetAuthenticationPolicyJwksURIs(policy); err == nil {

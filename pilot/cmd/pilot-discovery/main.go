@@ -176,6 +176,7 @@ func init() {
 }
 
 func main() {
+	fmt.Println("SOME NONSENSE OUT LOLS")
 	if err := rootCmd.Execute(); err != nil {
 		log.Errora(err)
 		os.Exit(-1)

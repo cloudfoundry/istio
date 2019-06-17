@@ -1,0 +1,11 @@
+requirement: set values on go structs at specified jsonpath (in place)
+
+current plan:
+- reuse k8s jsonpath package
+    - either by forking and extending, or by wrapping
+    - wrapping probably isn't possible, so let's fork first
+
+Qs:
+
+1. Why does FindResults return a [][]reflect.Value?
+

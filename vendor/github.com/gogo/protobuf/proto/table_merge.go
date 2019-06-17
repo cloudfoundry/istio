@@ -115,6 +115,8 @@ func (mi *mergeInfo) merge(dst, src pointer) {
 
 	for _, fi := range mi.fields {
 		sfp := src.offset(fi.field)
+		// fmt.Printf("sfp --> %+v\n", sfp)
+		fmt.Printf("fi --> %+v\n", fi)
 
 		// As an optimization, we can avoid the merge function call cost
 		// if we know for sure that the source will have no effect

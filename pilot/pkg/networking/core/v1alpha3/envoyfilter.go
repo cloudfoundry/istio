@@ -15,6 +15,7 @@
 package v1alpha3
 
 import (
+	"fmt"
 	"net"
 	"strings"
 
@@ -24,57 +25,14 @@ import (
 	http_conn "github.com/envoyproxy/go-control-plane/envoy/config/filter/network/http_connection_manager/v2"
 	xdsutil "github.com/envoyproxy/go-control-plane/pkg/util"
 	"github.com/gogo/protobuf/jsonpb"
-	"github.com/gogo/protobuf/types"
-
+	"github.com/google/cel-go/cel"
+	"github.com/google/cel-go/checker/decls"
 	networking "istio.io/api/networking/v1alpha3"
 	"istio.io/istio/pilot/pkg/model"
 	"istio.io/istio/pilot/pkg/networking/plugin"
 	"istio.io/istio/pilot/pkg/networking/util"
 	"istio.io/pkg/log"
 )
-
-func insertUserListeners(listeners []*xdsapi.Listener, env *model.Environment, labels model.LabelsCollection) []*xdsapi.Listener {
-	filterCRD := getUserFiltersForWorkload(env, labels)
-	if filterCRD == nil {
-		return listeners
-	}
-
-	// for each EnvoyFilter.Listener, if Patch is provided and Path is not, add the listener
-	// if the config is invalid, the error is logged and no new listeners are added
-	for _, l := range filterCRD.Listeners {
-		if len(l.Patches) == 0 {
-			continue
-		}
-
-		for _, p := range l.Patches {
-			if p.Path == "" && p.Operator == networking.EnvoyFilter_Patch_ADD {
-				newListener, err := buildListenerFromEnvoyConfig(p.Value)
-				if err != nil {
-					log.Warnf("Failed to unmarshal provided value into listener")
-					return listeners
-				}
-				listeners = append(listeners, newListener)
-			}
-		}
-	}
-
-	return listeners
-}
-
-func buildListenerFromEnvoyConfig(value *types.Value) (*xdsapi.Listener, error) {
-	listener := xdsapi.Listener{}
-	val := value.GetStringValue()
-	if val != "" {
-		jsonum := &jsonpb.Unmarshaler{}
-		r := strings.NewReader(val)
-		err := jsonum.Unmarshal(r, &listener)
-		if err != nil {
-			return nil, err
-		}
-	}
-
-	return &listener, nil
-}
 
 // We process EnvoyFilter CRDs after calling all plugins and building the listener with the required filter chains
 // Having the entire filter chain is essential because users can specify one or more filters to be inserted
@@ -351,7 +309,7 @@ func insertNetworkFilter(listenerName string, filterChain *listener.FilterChain,
 		listenerName, oldLen, len(filterChain.Filters))
 }
 
-func insertUserListeners(listeners []*xdsapi.Listener, env *model.Environment, labels model.LabelsCollection) []*xdsapi.Listener {
+func applyUserListenerConfig(listeners []*xdsapi.Listener, env *model.Environment, labels model.LabelsCollection) []*xdsapi.Listener {
 	filterCRD := getUserFiltersForWorkload(env, labels)
 	if filterCRD == nil {
 		return listeners
@@ -372,6 +330,45 @@ func insertUserListeners(listeners []*xdsapi.Listener, env *model.Environment, l
 					return listeners
 				}
 				listeners = append(listeners, newListener)
+			}
+		}
+
+		for _, p := range l.Patches {
+			if p.Path != "" && p.Operator == networking.EnvoyFilter_Patch_MERGE {
+				// define the input attributes
+				// each identity and function declared will be used as either a variable or a function
+				// need to programmatically expose each listener field
+				decls := cel.Declarations(
+					decls.NewIdent("listener", decls.Dyn, nil),
+					decls.NewIdent("address", decls.Dyn, nil),
+				)
+				e, _ := cel.NewEnv(decls)
+				p, _ := e.Parse("merge(listener)")
+
+				// check to see if the request is valid
+				c, _ := e.Check(p)
+				funcs := cel.Functions(
+	)
+
+				// define the implementation of the functions
+				prg, _ := e.Program(c, funcs)
+
+				// evaluate the program against the existing Listener and the provided value
+				out, _, _ := prg.Eval("someInputs")
+
+				fmt.Println("output: ", out)
+
+				// do something with the output
+
+				// for _, existingListener := range listeners {
+				// 	listenerDiff, err := buildListenerFromEnvoyConfig(p.Value)
+				// 	if err != nil {
+				// 		panic(err)
+				// 	}
+
+					// proto.Merge(existingListener, listenerDiff)
+					// listeners = append(listeners, existingListener)
+				// }
 			}
 		}
 	}

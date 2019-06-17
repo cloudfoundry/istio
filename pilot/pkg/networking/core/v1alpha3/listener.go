@@ -192,7 +192,7 @@ func (configgen *ConfigGeneratorImpl) BuildListeners(env *model.Environment, nod
 		listeners, err = configgen.buildGatewayListeners(env, node, push)
 	}
 
-	listeners = insertUserListeners(listeners, env, node.WorkloadLabels)
+	listeners = applyUserListenerConfig(listeners, env, node.WorkloadLabels)
 
 	return listeners, err
 }

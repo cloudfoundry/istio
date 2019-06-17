@@ -30,23 +30,8 @@ import (
 	"istio.io/istio/pilot/pkg/networking/plugin"
 )
 
-func TestBuildListenerFromEnvoyConfig(t *testing.T) {
-	jsonValue := `{"address": { "pipe": { "path": "some-address" } }, "filter_chains": [{"filters": [{"name": "envoy.ratelimit"}]}]}`
-	val := &types.Value{
-		Kind: &types.Value_StringValue{StringValue: jsonValue},
-	}
-	listener, err := buildListenerFromEnvoyConfig(val)
-	if err != nil {
-		t.Errorf("failed to build listener")
-	}
-	if listener.Address.GetAddress() == nil {
-		t.Errorf("listener address is nil")
-	}
-}
-
-func TestInsertUserListeners(t *testing.T) {
-	listenerConfig := `{"address": { "pipe": { "path": "some-path" } }, "filter_chains": [{"filters": [{"name": "envoy.ratelimit"}]}]}`
-	envoyFilterConfigStore := &fakes.IstioConfigStore{
+func buildEnvoyFilterConfigStore(listeners []*networking.EnvoyFilter_Listener) *fakes.IstioConfigStore {
+	return &fakes.IstioConfigStore{
 		EnvoyFilterStub: func(workloadLabels model.LabelsCollection) *model.Config {
 			return &model.Config{
 				ConfigMeta: model.ConfigMeta{
@@ -54,24 +39,45 @@ func TestInsertUserListeners(t *testing.T) {
 					Namespace: "not-default",
 				},
 				Spec: &networking.EnvoyFilter{
-					Listeners: []*networking.EnvoyFilter_Listener{
-						{
-							Patches: []*networking.EnvoyFilter_Patch{
-								{
-									Operator: networking.EnvoyFilter_Patch_ADD,
-									Value: &types.Value{
-										Kind: &types.Value_StringValue{StringValue: listenerConfig},
-									},
-								},
-							},
-						},
-					},
+					Listeners: listeners,
 				},
 			}
 		},
 	}
+
+}
+
+func TestApplyUserListenerConfig(t *testing.T) {
 	serviceDiscovery := &fakes.ServiceDiscovery{}
-	envoyFilterEnv := newTestEnvironment(serviceDiscovery, testMesh, envoyFilterConfigStore)
+	listenerConfig := `{"address": { "pipe": { "path": "some-path" } }, "filter_chains": [{"filters": [{"name": "envoy.ratelimit"}]}]}`
+	addPatchWithNoPath := []*networking.EnvoyFilter_Listener{
+		{
+			Patches: []*networking.EnvoyFilter_Patch{
+				{
+					Operator: networking.EnvoyFilter_Patch_ADD,
+					Value: &types.Value{
+						Kind: &types.Value_StringValue{StringValue: listenerConfig},
+					},
+				},
+			},
+		},
+	}
+
+	mergeConfig := `{"filter_chains": [{"filters": [{"name": "envoy.http_connection_manager"}]}]}`
+	mergePatch := []*networking.EnvoyFilter_Listener{
+		{
+			Patches: []*networking.EnvoyFilter_Patch{
+				{
+					// TODO: figure out why jsonpb isn't unmarshaling to snake case
+					Path:     `{range .filterChains[*]}{.filters[?(@.name == "envoy.ratelimit")]}`,
+					Operator: networking.EnvoyFilter_Patch_MERGE,
+					Value: &types.Value{
+						Kind: &types.Value_StringValue{StringValue: mergeConfig},
+					},
+				},
+			},
+		},
+	}
 
 	testCases := []struct {
 		name      string
@@ -81,9 +87,9 @@ func TestInsertUserListeners(t *testing.T) {
 		result    []*xdsapi.Listener
 	}{
 		{
-			name:      "happy path",
+			name:      "listener config happy path",
 			listeners: make([]*xdsapi.Listener, 0),
-			env:       envoyFilterEnv,
+			env:       newTestEnvironment(serviceDiscovery, testMesh, buildEnvoyFilterConfigStore(addPatchWithNoPath)),
 			labels:    model.LabelsCollection{},
 			result: []*xdsapi.Listener{
 				{
@@ -106,10 +112,55 @@ func TestInsertUserListeners(t *testing.T) {
 				},
 			},
 		},
+		{
+			name: "merge with jsonpath",
+			listeners: []*xdsapi.Listener{
+				{
+					Address: core.Address{
+						Address: &core.Address_Pipe{
+							Pipe: &core.Pipe{
+								Path: "some-path",
+							},
+						},
+					},
+					FilterChains: []listener.FilterChain{
+						{
+							Filters: []listener.Filter{
+								{
+									Name: "envoy.ratelimit",
+								},
+							},
+						},
+					},
+				},
+			},
+			env:    newTestEnvironment(serviceDiscovery, testMesh, buildEnvoyFilterConfigStore(mergePatch)),
+			labels: model.LabelsCollection{},
+			result: []*xdsapi.Listener{
+				{
+					Address: core.Address{
+						Address: &core.Address_Pipe{
+							Pipe: &core.Pipe{
+								Path: "some-path",
+							},
+						},
+					},
+					FilterChains: []listener.FilterChain{
+						{
+							Filters: []listener.Filter{
+								{
+									Name: "envoy.http_connection_manager",
+								},
+							},
+						},
+					},
+				},
+			},
+		},
 	}
 
 	for _, tc := range testCases {
-		ret := insertUserListeners(tc.listeners, tc.env, tc.labels)
+		ret := applyUserListenerConfig(tc.listeners, tc.env, tc.labels)
 		if !reflect.DeepEqual(tc.result, ret) {
 			t.Errorf("test case %s: expecting %v but got %v", tc.name, tc.result, ret)
 		}

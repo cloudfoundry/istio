@@ -583,34 +583,17 @@ func validateExportTo(exportTo []string) (errs error) {
 
 // ValidateEnvoyFilter checks envoy filter config supplied by user
 func ValidateEnvoyFilter(_, _ string, msg proto.Message) (errs error) {
-	rule, ok := msg.(*networking.EnvoyFilter)
+	filter, ok := msg.(*networking.EnvoyFilter)
 	if !ok {
 		return fmt.Errorf("cannot cast to envoy filter")
 	}
 
-	if len(rule.Filters) == 0 {
-		return fmt.Errorf("envoy filter: missing filters")
+	if len(filter.Filters) > 0 {
+		log.Warnf("envoy filter: Filters is deprecated, use ConfigPatches instead.")
 	}
 
-	for _, f := range rule.Filters {
-		if f.InsertPosition != nil {
-			if f.InsertPosition.Index == networking.EnvoyFilter_InsertPosition_BEFORE ||
-				f.InsertPosition.Index == networking.EnvoyFilter_InsertPosition_AFTER {
-				if f.InsertPosition.RelativeTo == "" {
-					errs = appendErrors(errs, fmt.Errorf("envoy filter: missing relativeTo filter with BEFORE/AFTER index"))
-				}
-			}
-		}
-		if f.FilterType == networking.EnvoyFilter_Filter_INVALID {
-			errs = appendErrors(errs, fmt.Errorf("envoy filter: missing filter type"))
-		}
-		if len(f.FilterName) == 0 {
-			errs = appendErrors(errs, fmt.Errorf("envoy filter: missing filter name"))
-		}
-
-		if f.FilterConfig == nil {
-			errs = appendErrors(errs, fmt.Errorf("envoy filter: missing filter config"))
-		}
+	if len(filter.ConfigPatches) == 0 {
+		return fmt.Errorf("envoy filter: at least one config patch is required")
 	}
 
 	return

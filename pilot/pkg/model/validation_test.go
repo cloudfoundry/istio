@@ -3166,69 +3166,8 @@ func TestValidateEnvoyFilter(t *testing.T) {
 		in    proto.Message
 		error string
 	}{
-		{name: "empty filters", in: &networking.EnvoyFilter{}, error: "missing filters"},
-
-		{name: "missing relativeTo", in: &networking.EnvoyFilter{
-			Filters: []*networking.EnvoyFilter_Filter{
-				{
-					InsertPosition: &networking.EnvoyFilter_InsertPosition{
-						Index: networking.EnvoyFilter_InsertPosition_AFTER,
-					},
-					FilterType:   networking.EnvoyFilter_Filter_NETWORK,
-					FilterName:   "envoy.foo",
-					FilterConfig: &types.Struct{},
-				},
-			},
-		}, error: "missing relativeTo"},
-
-		{name: "missing filter type", in: &networking.EnvoyFilter{
-			Filters: []*networking.EnvoyFilter_Filter{
-				{
-					InsertPosition: &networking.EnvoyFilter_InsertPosition{
-						Index: networking.EnvoyFilter_InsertPosition_FIRST,
-					},
-					FilterName:   "envoy.foo",
-					FilterConfig: &types.Struct{},
-				},
-			},
-		}, error: "missing filter type"},
-
-		{name: "missing filter name", in: &networking.EnvoyFilter{
-			Filters: []*networking.EnvoyFilter_Filter{
-				{
-					InsertPosition: &networking.EnvoyFilter_InsertPosition{
-						Index: networking.EnvoyFilter_InsertPosition_FIRST,
-					},
-					FilterType:   networking.EnvoyFilter_Filter_NETWORK,
-					FilterConfig: &types.Struct{},
-				},
-			},
-		}, error: "missing filter name"},
-
-		{name: "missing filter config", in: &networking.EnvoyFilter{
-			Filters: []*networking.EnvoyFilter_Filter{
-				{
-					InsertPosition: &networking.EnvoyFilter_InsertPosition{
-						Index: networking.EnvoyFilter_InsertPosition_FIRST,
-					},
-					FilterType: networking.EnvoyFilter_Filter_NETWORK,
-					FilterName: "envoy.foo",
-				},
-			},
-		}, error: "missing filter config"},
-
-		{name: "happy filter config", in: &networking.EnvoyFilter{
-			Filters: []*networking.EnvoyFilter_Filter{
-				{
-					InsertPosition: &networking.EnvoyFilter_InsertPosition{
-						Index: networking.EnvoyFilter_InsertPosition_FIRST,
-					},
-					FilterType:   networking.EnvoyFilter_Filter_NETWORK,
-					FilterName:   "envoy.foo",
-					FilterConfig: &types.Struct{},
-				},
-			},
-		}, error: ""},
+		{name: "no config patches", in: &networking.EnvoyFilter{},
+			error: "at least one config patch is required"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

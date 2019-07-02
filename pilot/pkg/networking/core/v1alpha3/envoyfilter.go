@@ -302,26 +302,6 @@ func insertNetworkFilter(listenerName string, filterChain *listener.FilterChain,
 		listenerName, oldLen, len(filterChain.Filters))
 }
 
-func applyConfigPatches(listeners []*xdsapi.Listener, env *model.Environment, labels model.LabelsCollection) []*xdsapi.Listener {
-	filterCRD := getUserFiltersForWorkload(env, labels)
-	if filterCRD == nil {
-		return listeners
-	}
-
-	for _, cp := range filterCRD.ConfigPatches {
-		if cp.GetMatch() == nil && cp.GetApplyTo() == networking.EnvoyFilter_LISTENER {
-			newListener, err := buildListenerFromEnvoyConfig(cp.GetPatch().GetValue())
-			if err != nil {
-				log.Warnf("Failed to unmarshal provided value into listener")
-				return listeners
-			}
-			listeners = append(listeners, newListener)
-		}
-	}
-
-	return listeners
-}
-
 func buildListenerFromEnvoyConfig(value *types.Value) (*xdsapi.Listener, error) {
 	listener := xdsapi.Listener{}
 	val := value.GetStringValue()
@@ -335,4 +315,75 @@ func buildListenerFromEnvoyConfig(value *types.Value) (*xdsapi.Listener, error) 
 	}
 
 	return &listener, nil
+}
+
+func applyConfigPatches(listeners []*xdsapi.Listener, env *model.Environment, labels model.LabelsCollection) []*xdsapi.Listener {
+	filterCRD := getUserFiltersForWorkload(env, labels)
+	if filterCRD == nil {
+		return listeners
+	}
+
+	for _, cp := range filterCRD.ConfigPatches {
+		if cp.GetApplyTo() != networking.EnvoyFilter_LISTENER {
+			continue
+		}
+
+		if cp.GetMatch() == nil {
+			newListener, err := buildListenerFromEnvoyConfig(cp.GetPatch().GetValue())
+			if err != nil {
+				log.Warnf("Failed to unmarshal provided value into listener")
+				return listeners
+			}
+
+			listeners = append(listeners, newListener)
+		}
+	}
+
+	for _, cp := range filterCRD.ConfigPatches {
+		if cp.GetApplyTo() != networking.EnvoyFilter_LISTENER {
+			continue
+		}
+
+		listenerMatch := cp.GetMatch().GetListener()
+		// TODO: test me
+		if listenerMatch == nil {
+			continue
+		}
+
+		// compile a list of matched listeners
+		// for each matched listener, apply the patch
+
+		// don't check if match condition is nil
+		// check name
+		matchedListeners := findMatches(listenerMatch, listeners)
+		if len(matchedListeners) == 0 {
+			continue
+		}
+
+		insertPatchValues(listenerMatch, matchedListeners, cp)
+
+		// check port number
+		// check port name
+		// check filter chain
+	}
+
+	return listeners
+}
+
+func insertPatchValues(match *networking.EnvoyFilter_ListenerMatch,
+	listeners []*xdsapi.Listener, cp *networking.EnvoyFilter_EnvoyConfigObjectPatch) {
+	for _, listener := range listeners {
+		if match.GetName() == listener.GetName() {
+			listener.Name = cp.GetPatch().GetValue().GetStringValue()
+		}
+
+		if match.GetPortNumber() > 0 {
+			socketAddress := listener.Address.GetSocketAddress()
+			if socketAddress != nil && socketAddress.GetPortValue() > 0 && match.GetPortNumber() == socketAddress.GetPortValue() {
+				listener.Address.Address.(*core.Address_Pipe).Pipe = nil
+				listener.Address.Address.(*core.Address_SocketAddress).
+					SocketAddress.PortSpecifier.(*core.SocketAddress_PortValue).PortValue = uint32(cp.GetPatch().GetValue().GetNumberValue())
+			}
+		}
+	}
 }

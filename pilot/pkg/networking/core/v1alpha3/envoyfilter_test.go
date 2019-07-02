@@ -21,8 +21,8 @@ import (
 
 	xdsapi "github.com/envoyproxy/go-control-plane/envoy/api/v2"
 	"github.com/envoyproxy/go-control-plane/envoy/api/v2/core"
-	"github.com/gogo/protobuf/types"
 	listener "github.com/envoyproxy/go-control-plane/envoy/api/v2/listener"
+	"github.com/gogo/protobuf/types"
 
 	networking "istio.io/api/networking/v1alpha3"
 	"istio.io/istio/pilot/pkg/model"
@@ -44,12 +44,10 @@ func buildEnvoyFilterConfigStore(configPatches []*networking.EnvoyFilter_EnvoyCo
 			}
 		},
 	}
-
 }
 
 func TestApplyConfigPatches(t *testing.T) {
 	// TODO: test workload selector
-	serviceDiscovery := &fakes.ServiceDiscovery{}
 	listenerConfig := `{"address": { "pipe": { "path": "some-path" } }, "filter_chains": [{"filters": [{"name": "envoy.ratelimit"}]}]}`
 	patches := []*networking.EnvoyFilter_EnvoyConfigObjectPatch{
 		{
@@ -62,18 +60,19 @@ func TestApplyConfigPatches(t *testing.T) {
 			},
 		},
 	}
+
 	testCases := []struct {
-		name      string
-		listeners []*xdsapi.Listener
-		env       *model.Environment
-		labels    model.LabelsCollection
-		result    []*xdsapi.Listener
+		name              string
+		existingListeners []*xdsapi.Listener
+		patches           []*networking.EnvoyFilter_EnvoyConfigObjectPatch
+		labels            model.LabelsCollection
+		result            []*xdsapi.Listener
 	}{
 		{
-			name:      "listener config add patch happy path",
-			listeners: make([]*xdsapi.Listener, 0),
-			env:       newTestEnvironment(serviceDiscovery, testMesh, buildEnvoyFilterConfigStore(patches)),
-			labels:    model.LabelsCollection{},
+			name:              "listener config add patch happy path",
+			existingListeners: make([]*xdsapi.Listener, 0),
+			patches:           patches,
+			labels:            model.LabelsCollection{},
 			result: []*xdsapi.Listener{
 				{
 					Address: core.Address{
@@ -98,7 +97,11 @@ func TestApplyConfigPatches(t *testing.T) {
 	}
 
 	for _, tc := range testCases {
-		ret := applyConfigPatches(tc.listeners, tc.env, tc.labels)
+		serviceDiscovery := &fakes.ServiceDiscovery{}
+		configStore := buildEnvoyFilterConfigStore(tc.patches)
+		env := newTestEnvironment(serviceDiscovery, testMesh, configStore)
+
+		ret := applyConfigPatches(tc.existingListeners, env, tc.labels)
 		if !reflect.DeepEqual(tc.result, ret) {
 			t.Errorf("test case %s: expecting %v but got %v", tc.name, tc.result, ret)
 		}

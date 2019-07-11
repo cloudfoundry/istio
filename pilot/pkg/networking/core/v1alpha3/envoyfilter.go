@@ -160,9 +160,9 @@ func listenerMatch(in *plugin.InputParams, listenerIP net.IP,
 	// case ANY implies do not care about proxy type or direction
 	if matchCondition.ListenerType != networking.EnvoyFilter_DeprecatedListenerMatch_ANY {
 		// check if the current listener category matches with the user specified type
-		if matchCondition.ListenerType != in.ListenerCategory {
-			return false
-		}
+		// if matchCondition.ListenerType != in.ListenerCategory {
+		// 	return false
+		// }
 
 		// Check if the node's role matches properly with the listener category
 		switch matchCondition.ListenerType {
@@ -350,27 +350,18 @@ func applyConfigPatches(listeners []*xdsapi.Listener, env *model.Environment, la
 			continue
 		}
 
-		// compile a list of matched listeners
-		// for each matched listener, apply the patch
-
-		// don't check if match condition is nil
-		// check name
 		matchedListeners := findMatches(listenerMatch, listeners)
 		if len(matchedListeners) == 0 {
 			continue
 		}
 
-		insertPatchValues(listenerMatch, matchedListeners, cp)
-
-		// check port number
-		// check port name
-		// check filter chain
+		applyPatches(listenerMatch, matchedListeners, cp)
 	}
 
 	return listeners
 }
 
-func insertPatchValues(match *networking.EnvoyFilter_ListenerMatch,
+func applyPatches(match *networking.EnvoyFilter_ListenerMatch,
 	listeners []*xdsapi.Listener, cp *networking.EnvoyFilter_EnvoyConfigObjectPatch) {
 	for _, listener := range listeners {
 		if match.GetName() == listener.GetName() {

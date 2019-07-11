@@ -112,7 +112,13 @@ func TestFindMatches(t *testing.T) {
 		result            []*xdsapi.Listener
 	}{
 		{
-			name: "listeners matched by name",
+			name: "empty match",
+			matchConditions: &networking.EnvoyFilter_ListenerMatch{},
+			existingListeners: seedListeners,
+			result: []*xdsapi.Listener{},
+		},
+		{
+			name: "match listener by name",
 			matchConditions: &networking.EnvoyFilter_ListenerMatch{
 				Name: "nameListener",
 			},
@@ -131,7 +137,7 @@ func TestFindMatches(t *testing.T) {
 			},
 		},
 		{
-			name: "listeners matched by port number",
+			name: "match listener by port number",
 			matchConditions: &networking.EnvoyFilter_ListenerMatch{
 				PortNumber: 433,
 			},
@@ -152,7 +158,7 @@ func TestFindMatches(t *testing.T) {
 			},
 		},
 		{
-			name: "listeners matched by port name",
+			name: "match listener by port name",
 			matchConditions: &networking.EnvoyFilter_ListenerMatch{
 				PortName: "some-named-port",
 			},
@@ -173,7 +179,7 @@ func TestFindMatches(t *testing.T) {
 			},
 		},
 		{
-			name: "listeners matched by filter chain sni",
+			name: "match listener by filter chain sni",
 			matchConditions: &networking.EnvoyFilter_ListenerMatch{
 				FilterChain: &networking.EnvoyFilter_ListenerMatch_FilterChainMatch{
 					Sni: "www.example.com",
@@ -194,7 +200,7 @@ func TestFindMatches(t *testing.T) {
 			},
 		},
 		{
-			name: "listeners matched by filter chain transport protocol",
+			name: "match listener by filter chain transport protocol",
 			matchConditions: &networking.EnvoyFilter_ListenerMatch{
 				FilterChain: &networking.EnvoyFilter_ListenerMatch_FilterChainMatch{
 					TransportProtocol: "raw_buffer",
@@ -216,7 +222,7 @@ func TestFindMatches(t *testing.T) {
 			},
 		},
 		{
-			name: "listeners matched by filter name in filter chain",
+			name: "match listener by filter name in filter chain",
 			matchConditions: &networking.EnvoyFilter_ListenerMatch{
 				FilterChain: &networking.EnvoyFilter_ListenerMatch_FilterChainMatch{
 					Filter: &networking.EnvoyFilter_ListenerMatch_FilterMatch{
@@ -243,12 +249,20 @@ func TestFindMatches(t *testing.T) {
 				},
 			},
 		},
+		{
+			name: "TODO: does not match",
+			matchConditions: &networking.EnvoyFilter_ListenerMatch{},
+			existingListeners: seedListeners,
+			result: []*xdsapi.Listener{},
+		},
 	}
 
 	for _, tc := range testCases {
 		ret := findMatches(tc.matchConditions, tc.existingListeners)
 		if !reflect.DeepEqual(tc.result, ret) {
 			t.Errorf("test case:  %s; expecting %v but got %v", tc.name, tc.result, ret)
+			t.Errorf("expected length: %d", len(tc.result))
+			t.Errorf("length of result: %d", len(ret))
 		}
 	}
 }

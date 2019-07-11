@@ -160,7 +160,7 @@ func listenerMatch(in *plugin.InputParams, listenerIP net.IP,
 	// case ANY implies do not care about proxy type or direction
 	if matchCondition.ListenerType != networking.EnvoyFilter_DeprecatedListenerMatch_ANY {
 		// check if the current listener category matches with the user specified type
-		if matchCondition.ListenerType != in.ListenerCategory {
+		if matchCondition.ListenerType != in.DeprecatedListenerCategory {
 			return false
 		}
 

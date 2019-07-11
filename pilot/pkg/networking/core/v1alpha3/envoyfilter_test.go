@@ -232,7 +232,7 @@ func TestListenerMatch(t *testing.T) {
 	}
 
 	for _, tc := range testCases {
-		tc.inputParams.ListenerCategory = tc.direction
+		tc.inputParams.DeprecatedListenerCategory = tc.direction
 		ret := listenerMatch(tc.inputParams, tc.listenerIP, tc.matchCondition)
 		if tc.result != ret {
 			t.Errorf("%s: expecting %v but got %v", tc.name, tc.result, ret)

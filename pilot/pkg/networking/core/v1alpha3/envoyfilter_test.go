@@ -21,8 +21,8 @@ import (
 
 	xdsapi "github.com/envoyproxy/go-control-plane/envoy/api/v2"
 	"github.com/envoyproxy/go-control-plane/envoy/api/v2/core"
-	"github.com/gogo/protobuf/types"
 	listener "github.com/envoyproxy/go-control-plane/envoy/api/v2/listener"
+	"github.com/gogo/protobuf/types"
 
 	networking "istio.io/api/networking/v1alpha3"
 	"istio.io/istio/pilot/pkg/model"
@@ -68,14 +68,14 @@ func TestApplyConfigPatches(t *testing.T) {
 	testCases := []struct {
 		name      string
 		listeners []*xdsapi.Listener
-		patches []*networking.EnvoyFilter_EnvoyConfigObjectPatch
+		patches   []*networking.EnvoyFilter_EnvoyConfigObjectPatch
 		labels    model.LabelsCollection
 		result    []*xdsapi.Listener
 	}{
 		{
 			name:      "successfully adds a listener",
 			listeners: make([]*xdsapi.Listener, 0),
-			patches: buildListenerPatches(listenerConfig),
+			patches:   buildListenerPatches(listenerConfig),
 			labels:    model.LabelsCollection{},
 			result: []*xdsapi.Listener{
 				{
@@ -101,14 +101,14 @@ func TestApplyConfigPatches(t *testing.T) {
 		{
 			name:      "does not add a listener with invalid config",
 			listeners: make([]*xdsapi.Listener, 0),
-			patches:       buildListenerPatches(invalidConfig),
+			patches:   buildListenerPatches(invalidConfig),
 			labels:    model.LabelsCollection{},
-			result: []*xdsapi.Listener{},
+			result:    []*xdsapi.Listener{},
 		},
 		{
 			name:      "does not merge listener",
 			listeners: make([]*xdsapi.Listener, 0),
-			patches:       []*networking.EnvoyFilter_EnvoyConfigObjectPatch{
+			patches: []*networking.EnvoyFilter_EnvoyConfigObjectPatch{
 				{
 					ApplyTo: networking.EnvoyFilter_LISTENER,
 					Patch: &networking.EnvoyFilter_Patch{
@@ -119,22 +119,22 @@ func TestApplyConfigPatches(t *testing.T) {
 					},
 				},
 			},
-			labels:    model.LabelsCollection{},
+			labels: model.LabelsCollection{},
 			result: []*xdsapi.Listener{},
 		},
 		{
 			name:      "does not add new listener with empty patch",
 			listeners: make([]*xdsapi.Listener, 0),
-			patches:       []*networking.EnvoyFilter_EnvoyConfigObjectPatch{
+			patches: []*networking.EnvoyFilter_EnvoyConfigObjectPatch{
 				{
 					ApplyTo: networking.EnvoyFilter_LISTENER,
 				},
 			},
-			labels:    model.LabelsCollection{},
+			labels: model.LabelsCollection{},
 			result: []*xdsapi.Listener{},
 		},
 		{
-			name:      "does not remove listener",
+			name: "does not remove listener",
 			listeners: []*xdsapi.Listener{
 				{
 					Address: core.Address{
@@ -155,7 +155,7 @@ func TestApplyConfigPatches(t *testing.T) {
 					},
 				},
 			},
-			patches:      []*networking.EnvoyFilter_EnvoyConfigObjectPatch{
+			patches: []*networking.EnvoyFilter_EnvoyConfigObjectPatch{
 				{
 					ApplyTo: networking.EnvoyFilter_LISTENER,
 					Patch: &networking.EnvoyFilter_Patch{
@@ -166,7 +166,7 @@ func TestApplyConfigPatches(t *testing.T) {
 					},
 				},
 			},
-			labels:    model.LabelsCollection{},
+			labels: model.LabelsCollection{},
 			result: []*xdsapi.Listener{
 				{
 					Address: core.Address{

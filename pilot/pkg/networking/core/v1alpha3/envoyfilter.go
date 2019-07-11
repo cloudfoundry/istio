@@ -309,13 +309,19 @@ func applyConfigPatches(listeners []*xdsapi.Listener, env *model.Environment, la
 	}
 
 	for _, cp := range filterCRD.ConfigPatches {
+		if cp.GetPatch() == nil {
+			continue
+		}
+
 		if cp.GetMatch() == nil && cp.GetApplyTo() == networking.EnvoyFilter_LISTENER {
-			newListener, err := buildListenerFromEnvoyConfig(cp.GetPatch().GetValue())
-			if err != nil {
-				log.Warnf("Failed to unmarshal provided value into listener")
-				return listeners
+			if cp.GetPatch().GetOperation() == networking.EnvoyFilter_Patch_ADD {
+				newListener, err := buildListenerFromEnvoyConfig(cp.GetPatch().GetValue())
+				if err != nil {
+					log.Warnf("Failed to unmarshal provided value into listener")
+					continue
+				}
+				listeners = append(listeners, newListener)
 			}
-			listeners = append(listeners, newListener)
 		}
 	}
 

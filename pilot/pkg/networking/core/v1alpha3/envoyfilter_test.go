@@ -47,32 +47,125 @@ func buildEnvoyFilterConfigStore(configPatches []*networking.EnvoyFilter_EnvoyCo
 
 }
 
-func TestApplyConfigPatches(t *testing.T) {
-	// TODO: test workload selector
-	serviceDiscovery := &fakes.ServiceDiscovery{}
-	listenerConfig := `{"address": { "pipe": { "path": "some-path" } }, "filter_chains": [{"filters": [{"name": "envoy.ratelimit"}]}]}`
-	patches := []*networking.EnvoyFilter_EnvoyConfigObjectPatch{
+func buildListenerPatches(config string) []*networking.EnvoyFilter_EnvoyConfigObjectPatch {
+	return []*networking.EnvoyFilter_EnvoyConfigObjectPatch{
 		{
 			ApplyTo: networking.EnvoyFilter_LISTENER,
 			Patch: &networking.EnvoyFilter_Patch{
 				Operation: networking.EnvoyFilter_Patch_ADD,
 				Value: &types.Value{
-					Kind: &types.Value_StringValue{StringValue: listenerConfig},
+					Kind: &types.Value_StringValue{StringValue: config},
 				},
 			},
 		},
 	}
+}
+
+func TestApplyConfigPatches(t *testing.T) {
+	listenerConfig := `{"address": { "pipe": { "path": "some-path" } }, "filter_chains": [{"filters": [{"name": "envoy.ratelimit"}]}]}`
+	invalidConfig := `{"address": { "non-existent-field": { "path": "some-path" } }, "filter_chains": [{"filters": [{"name": "envoy.ratelimit"}]}]}`
+
 	testCases := []struct {
 		name      string
 		listeners []*xdsapi.Listener
-		env       *model.Environment
+		patches []*networking.EnvoyFilter_EnvoyConfigObjectPatch
 		labels    model.LabelsCollection
 		result    []*xdsapi.Listener
 	}{
 		{
-			name:      "listener config add patch happy path",
+			name:      "successfully adds a listener",
 			listeners: make([]*xdsapi.Listener, 0),
-			env:       newTestEnvironment(serviceDiscovery, testMesh, buildEnvoyFilterConfigStore(patches)),
+			patches: buildListenerPatches(listenerConfig),
+			labels:    model.LabelsCollection{},
+			result: []*xdsapi.Listener{
+				{
+					Address: core.Address{
+						Address: &core.Address_Pipe{
+							Pipe: &core.Pipe{
+								Path: "some-path",
+							},
+						},
+					},
+					FilterChains: []listener.FilterChain{
+						{
+							Filters: []listener.Filter{
+								{
+									Name: "envoy.ratelimit",
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+		{
+			name:      "does not add a listener with invalid config",
+			listeners: make([]*xdsapi.Listener, 0),
+			patches:       buildListenerPatches(invalidConfig),
+			labels:    model.LabelsCollection{},
+			result: []*xdsapi.Listener{},
+		},
+		{
+			name:      "does not merge listener",
+			listeners: make([]*xdsapi.Listener, 0),
+			patches:       []*networking.EnvoyFilter_EnvoyConfigObjectPatch{
+				{
+					ApplyTo: networking.EnvoyFilter_LISTENER,
+					Patch: &networking.EnvoyFilter_Patch{
+						Operation: networking.EnvoyFilter_Patch_MERGE,
+						Value: &types.Value{
+							Kind: &types.Value_StringValue{StringValue: listenerConfig},
+						},
+					},
+				},
+			},
+			labels:    model.LabelsCollection{},
+			result: []*xdsapi.Listener{},
+		},
+		{
+			name:      "does not add new listener with empty patch",
+			listeners: make([]*xdsapi.Listener, 0),
+			patches:       []*networking.EnvoyFilter_EnvoyConfigObjectPatch{
+				{
+					ApplyTo: networking.EnvoyFilter_LISTENER,
+				},
+			},
+			labels:    model.LabelsCollection{},
+			result: []*xdsapi.Listener{},
+		},
+		{
+			name:      "does not remove listener",
+			listeners: []*xdsapi.Listener{
+				{
+					Address: core.Address{
+						Address: &core.Address_Pipe{
+							Pipe: &core.Pipe{
+								Path: "some-path",
+							},
+						},
+					},
+					FilterChains: []listener.FilterChain{
+						{
+							Filters: []listener.Filter{
+								{
+									Name: "envoy.ratelimit",
+								},
+							},
+						},
+					},
+				},
+			},
+			patches:      []*networking.EnvoyFilter_EnvoyConfigObjectPatch{
+				{
+					ApplyTo: networking.EnvoyFilter_LISTENER,
+					Patch: &networking.EnvoyFilter_Patch{
+						Operation: networking.EnvoyFilter_Patch_REMOVE,
+						Value: &types.Value{
+							Kind: &types.Value_StringValue{StringValue: listenerConfig},
+						},
+					},
+				},
+			},
 			labels:    model.LabelsCollection{},
 			result: []*xdsapi.Listener{
 				{
@@ -98,7 +191,10 @@ func TestApplyConfigPatches(t *testing.T) {
 	}
 
 	for _, tc := range testCases {
-		ret := applyConfigPatches(tc.listeners, tc.env, tc.labels)
+		serviceDiscovery := &fakes.ServiceDiscovery{}
+		env := newTestEnvironment(serviceDiscovery, testMesh, buildEnvoyFilterConfigStore(tc.patches))
+
+		ret := applyConfigPatches(tc.listeners, env, tc.labels)
 		if !reflect.DeepEqual(tc.result, ret) {
 			t.Errorf("test case %s: expecting %v but got %v", tc.name, tc.result, ret)
 		}

@@ -61,7 +61,7 @@ func buildListenerPatches(config string) []*networking.EnvoyFilter_EnvoyConfigOb
 	}
 }
 
-func TestApplyConfigPatches(t *testing.T) {
+func TestApplyListenerConfigPatches(t *testing.T) {
 	listenerConfig := `{"address": { "pipe": { "path": "some-path" } }, "filter_chains": [{"filters": [{"name": "envoy.ratelimit"}]}]}`
 	invalidConfig := `{"address": { "non-existent-field": { "path": "some-path" } }, "filter_chains": [{"filters": [{"name": "envoy.ratelimit"}]}]}`
 
@@ -194,7 +194,55 @@ func TestApplyConfigPatches(t *testing.T) {
 		serviceDiscovery := &fakes.ServiceDiscovery{}
 		env := newTestEnvironment(serviceDiscovery, testMesh, buildEnvoyFilterConfigStore(tc.patches))
 
-		ret := applyConfigPatches(tc.listeners, env, tc.labels)
+		ret := applyListenerConfigPatches(tc.listeners, env, tc.labels)
+		if !reflect.DeepEqual(tc.result, ret) {
+			t.Errorf("test case %s: expecting %v but got %v", tc.name, tc.result, ret)
+		}
+	}
+}
+
+func buildClusterPatches(config string) []*networking.EnvoyFilter_EnvoyConfigObjectPatch {
+	return []*networking.EnvoyFilter_EnvoyConfigObjectPatch{
+		{
+			ApplyTo: networking.EnvoyFilter_CLUSTER,
+			Patch: &networking.EnvoyFilter_Patch{
+				Operation: networking.EnvoyFilter_Patch_ADD,
+				Value: &types.Value{
+					Kind: &types.Value_StringValue{StringValue: config},
+				},
+			},
+		},
+	}
+}
+
+func TestApplyClusterConfigPatches(t *testing.T) {
+	clusterConfig := `{"name":"some-cluster"}`
+
+	testCases := []struct {
+		name     string
+		clusters []*xdsapi.Cluster
+		patches  []*networking.EnvoyFilter_EnvoyConfigObjectPatch
+		labels   model.LabelsCollection
+		result   []*xdsapi.Cluster
+	}{
+		{
+			name:      "successfully adds a cluster",
+			clusters: make([]*xdsapi.Cluster, 0),
+			patches:   buildClusterPatches(clusterConfig),
+			labels:    model.LabelsCollection{},
+			result: []*xdsapi.Cluster{
+				{
+					Name: "some-cluster",
+				},
+			},
+		},
+	}
+
+	for _, tc := range testCases {
+		serviceDiscovery := &fakes.ServiceDiscovery{}
+		env := newTestEnvironment(serviceDiscovery, testMesh, buildEnvoyFilterConfigStore(tc.patches))
+
+		ret := applyClusterConfigPatches(tc.clusters, env, tc.labels)
 		if !reflect.DeepEqual(tc.result, ret) {
 			t.Errorf("test case %s: expecting %v but got %v", tc.name, tc.result, ret)
 		}

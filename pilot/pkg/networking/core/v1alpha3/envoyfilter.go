@@ -302,7 +302,48 @@ func insertNetworkFilter(listenerName string, filterChain *listener.FilterChain,
 		listenerName, oldLen, len(filterChain.Filters))
 }
 
-func applyConfigPatches(listeners []*xdsapi.Listener, env *model.Environment, labels model.LabelsCollection) []*xdsapi.Listener {
+func applyClusterConfigPatches(clusters []*xdsapi.Cluster, env *model.Environment, labels model.LabelsCollection) []*xdsapi.Cluster{
+	filterCRD := getUserFiltersForWorkload(env, labels)
+	if filterCRD == nil {
+		return clusters
+	}
+
+	for _, cp := range filterCRD.ConfigPatches {
+		if cp.GetPatch() == nil {
+			continue
+		}
+
+		if cp.GetMatch() == nil && cp.GetApplyTo() == networking.EnvoyFilter_CLUSTER {
+			if cp.GetPatch().GetOperation() == networking.EnvoyFilter_Patch_ADD {
+				newCluster, err := buildClusterFromEnvoyConfig(cp.GetPatch().GetValue())
+				if err != nil {
+					log.Warnf("Failed to unmarshal provided value into cluster")
+					continue
+				}
+				clusters = append(clusters, newCluster)
+			}
+		}
+	}
+
+	return clusters
+}
+
+func buildClusterFromEnvoyConfig(value *types.Value) (*xdsapi.Cluster, error) {
+	cluster := xdsapi.Cluster{}
+	val := value.GetStringValue()
+	if val != "" {
+		jsonum := &jsonpb.Unmarshaler{}
+		r := strings.NewReader(val)
+		err := jsonum.Unmarshal(r, &cluster)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	return &cluster, nil
+}
+
+func applyListenerConfigPatches(listeners []*xdsapi.Listener, env *model.Environment, labels model.LabelsCollection) []*xdsapi.Listener {
 	filterCRD := getUserFiltersForWorkload(env, labels)
 	if filterCRD == nil {
 		return listeners

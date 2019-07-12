@@ -199,7 +199,7 @@ func (configgen *ConfigGeneratorImpl) BuildListeners(env *model.Environment, nod
 		listeners, err = configgen.buildGatewayListeners(env, node, push)
 	}
 
-	listeners = applyConfigPatches(listeners, env, node.WorkloadLabels)
+	listeners = applyListenerConfigPatches(listeners, env, node.WorkloadLabels)
 
 	return listeners, err
 }

@@ -22,11 +22,12 @@ import (
 var _ corev1.CoreV1Interface = &corev1Impl{}
 
 type corev1Impl struct {
+	configMaps corev1.ConfigMapInterface
+	endpoints  corev1.EndpointsInterface
+	namespaces corev1.NamespaceInterface
 	nodes      corev1.NodeInterface
 	pods       corev1.PodInterface
 	services   corev1.ServiceInterface
-	endpoints  corev1.EndpointsInterface
-	namespaces corev1.NamespaceInterface
 }
 
 func (c *corev1Impl) Nodes() corev1.NodeInterface {
@@ -54,7 +55,7 @@ func (c *corev1Impl) ComponentStatuses() corev1.ComponentStatusInterface {
 }
 
 func (c *corev1Impl) ConfigMaps(namespace string) corev1.ConfigMapInterface {
-	panic("not implemented")
+	return c.configMaps
 }
 
 func (c *corev1Impl) Events(namespace string) corev1.EventInterface {

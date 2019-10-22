@@ -147,6 +147,10 @@ type Args struct { // nolint:maligned
 
 	Snapshots       []string
 	TriggerSnapshot string
+
+	// Namespace the ingress status controller watches.
+	// If set to meta_v1.NamespaceAll (""), controller watches all namespaces
+	WatchedNamespace string
 }
 
 // DefaultArgs allocates an Args struct initialized with Galley's default configuration.
@@ -188,6 +192,7 @@ func DefaultArgs() *Args {
 		},
 		Snapshots:       []string{metadata.Default, metadata.SyntheticServiceEntry},
 		TriggerSnapshot: metadata.Default,
+		WatchedNamespace: "",
 	}
 }
 

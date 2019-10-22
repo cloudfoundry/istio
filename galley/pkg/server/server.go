@@ -63,6 +63,11 @@ func New(a *settings.Args) *Server {
 		}
 	}
 
+	status := components.NewStatusSyncer(a)
+	if status != nil {
+		s.host.Add(status)
+	}
+
 	mon := components.NewMonitoring(a.MonitoringPort)
 	s.host.Add(mon)
 

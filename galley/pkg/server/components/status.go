@@ -54,8 +54,8 @@ const (
 type StatusSyncer struct {
 	client kubernetes.Interface
 
-	ingressClass        string
-	defaultIngressClass string
+	mode         meshconfigapi.MeshConfig_IngressControllerMode
+	ingressClass string
 
 	// Name of service (ingressgateway default) to find the IP
 	ingressService string
@@ -76,28 +76,23 @@ func NewStatusSyncer(args *settings.Args) *StatusSyncer {
 
 	i, err := newInterfaces(args.KubeConfig)
 	if err != nil {
-		panic(err)
+		panic("test me")
 	}
 
 	client, err := i.KubeClient()
 	if err != nil {
-		panic("kubeclient")
+		panic("test me")
 	}
 
 	meshConfigCache, err := newMeshConfigCache(args.MeshConfigFile)
 	if err != nil {
-		panic("meshconfigcache")
+		panic("test me")
 	}
 	meshConfig := meshConfigCache.Get()
 
-	// TODO: replace istio with the ingressclass from the meshconfig
 	mode := meshConfig.GetIngressControllerMode()
-	class := meshConfig.GetIngressClass()
-	ingressClass, defaultIngressClass := convertIngressControllerMode(mode, class)
-	electionID := fmt.Sprintf("%v-%v", ingressElectionID, defaultIngressClass)
-	if ingressClass != "" {
-		electionID = fmt.Sprintf("%v-%v", ingressElectionID, ingressClass)
-	}
+	ingressClass := meshConfig.GetIngressClass()
+	electionID := fmt.Sprintf("%v-%v", ingressElectionID, ingressClass)
 
 	handler := &kube.ChainHandler{}
 	// queue requires a time duration for a retry delay after a handler error
@@ -116,13 +111,13 @@ func NewStatusSyncer(args *settings.Args) *StatusSyncer {
 	)
 
 	st := StatusSyncer{
-		client:              client,
-		informer:            informer,
-		queue:               queue,
-		ingressClass:        ingressClass,
-		defaultIngressClass: defaultIngressClass,
-		ingressService:      meshConfig.IngressService,
-		handler:             handler,
+		client:         client,
+		informer:       informer,
+		queue:          queue,
+		mode:           mode,
+		ingressClass:   ingressClass,
+		ingressService: meshConfig.IngressService,
+		handler:        handler,
 	}
 
 	callbacks := leaderelection.LeaderCallbacks{
@@ -207,22 +202,6 @@ func (s *StatusSyncer) Stop() {
 	}
 }
 
-// convertIngressControllerMode converts Ingress controller mode into k8s ingress status syncer ingress class and
-// default ingress class. Ingress class and default ingress class are used by the syncer to determine whether or not to
-// update the IP of a ingress resource.
-func convertIngressControllerMode(mode meshconfigapi.MeshConfig_IngressControllerMode,
-	class string) (string, string) {
-	var ingressClass, defaultIngressClass string
-	switch mode {
-	case meshconfigapi.MeshConfig_DEFAULT:
-		defaultIngressClass = class
-		ingressClass = class
-	case meshconfigapi.MeshConfig_STRICT:
-		ingressClass = class
-	}
-	return ingressClass, defaultIngressClass
-}
-
 // runningAddresses returns a list of IP addresses and/or FQDN where the
 // ingress controller is currently running
 func (s *StatusSyncer) runningAddresses(ingressNs string) ([]string, error) {
@@ -289,7 +268,13 @@ func (s *StatusSyncer) updateStatus(status []coreV1.LoadBalancerIngress) error {
 	ingressStore := s.informer.GetStore()
 	for _, obj := range ingressStore.List() {
 		currIng := obj.(*v1beta1.Ingress)
-		if !classIsValid(currIng, s.ingressClass, s.defaultIngressClass) {
+
+		var annotation string
+		if currIng != nil && len(currIng.GetAnnotations()) != 0 {
+			annotation = currIng.GetAnnotations()[kube.IngressClassAnnotation]
+		}
+
+		if !shouldUpdateStatus(s.mode, annotation, s.ingressClass) {
 			continue
 		}
 
@@ -324,29 +309,19 @@ func addressInSlice(addr string, list []string) bool {
 	return false
 }
 
-// classIsValid returns true if the given Ingress either doesn't specify
-// the ingress.class annotation, or it's set to the configured in the
-// ingress controller.
-func classIsValid(ing *v1beta1.Ingress, controller, defClass string) bool {
-	// ingress fetched through annotation.
-	var ingress string
-	if ing != nil && len(ing.GetAnnotations()) != 0 {
-		ingress = ing.GetAnnotations()[kube.IngressClassAnnotation]
+func shouldUpdateStatus(mode meshconfigapi.MeshConfig_IngressControllerMode,
+	annotation, ingressClass string) bool {
+
+	switch mode {
+	case meshconfigapi.MeshConfig_DEFAULT:
+		return annotation == ""
+	case meshconfigapi.MeshConfig_STRICT:
+		return annotation == ingressClass
 	}
 
-	// we have 2 valid combinations
-	// 1 - ingress with default class | blank annotation on ingress
-	// 2 - ingress with specific class | same annotation on ingress
-	//
-	// and 2 invalid combinations
-	// 3 - ingress with default class | fixed annotation on ingress
-	// 4 - ingress with specific class | different annotation on ingress
-	if ingress == "" && controller == defClass {
-		return true
-	}
-
-	return ingress == controller
+	return false
 }
+
 func lessLoadBalancerIngress(addrs []coreV1.LoadBalancerIngress) func(int, int) bool {
 
 	return func(a, b int) bool {

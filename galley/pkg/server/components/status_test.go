@@ -1,6 +1,7 @@
 package components
 
 import (
+	"fmt"
 	"io/ioutil"
 	"os"
 	"path"
@@ -44,6 +45,23 @@ func TestStatus(t *testing.T) {
 
 	err = s.Start()
 	g.Expect(err).To(BeNil())
+
+	s.Stop()
+}
+
+func TestNewStatusSyncerWithErrors(t *testing.T) {
+	g := NewWithT(t)
+	resetPatchTable()
+	defer resetPatchTable()
+
+	newInterfaces = func(string) (kube.Interfaces, error) {
+		return nil, fmt.Errorf("error getting kube interface")
+	}
+
+	args := settings.DefaultArgs()
+	args.EnableServiceDiscovery = true
+	s := NewStatusSyncer(args)
+	g.Expect(s).To(BeNil())
 }
 
 func TestStatusWithDisabledServiceDiscovery(t *testing.T) {
@@ -53,6 +71,24 @@ func TestStatusWithDisabledServiceDiscovery(t *testing.T) {
 
 	args := settings.DefaultArgs()
 	args.EnableServiceDiscovery = false
+
+	s := NewStatusSyncer(args)
+	g.Expect(s).To(BeNil())
+}
+
+func TestStatusWithKubeClientError(t *testing.T) {
+	g := NewWithT(t)
+	resetPatchTable()
+	defer resetPatchTable()
+
+	args := settings.DefaultArgs()
+	args.EnableServiceDiscovery = false
+
+	mk := mock.NewKube()
+	mk.AddResponse(nil, fmt.Errorf("error from kube client"))
+	newInterfaces = func(string) (kube.Interfaces, error) {
+		return mk, nil
+	}
 
 	s := NewStatusSyncer(args)
 	g.Expect(s).To(BeNil())

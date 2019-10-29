@@ -76,7 +76,8 @@ func NewStatusSyncer(args *settings.Args) *StatusSyncer {
 
 	i, err := newInterfaces(args.KubeConfig)
 	if err != nil {
-		panic("test me")
+		log.Debugf("could not get kube interfaces for status syncer")
+		return nil
 	}
 
 	client, err := i.KubeClient()

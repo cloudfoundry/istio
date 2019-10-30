@@ -49,6 +49,7 @@ import (
 const (
 	updateInterval    = 60 * time.Second
 	ingressElectionID = "istio-ingress-controller-leader"
+	electorTtl        = 30 * time.Second
 )
 
 type StatusSyncer struct {
@@ -56,16 +57,16 @@ type StatusSyncer struct {
 
 	// Name of service (ingressgateway default) to find the IP
 	ingressService string
-	mode         meshconfigapi.MeshConfig_IngressControllerMode
-	ingressClass string
+	mode           meshconfigapi.MeshConfig_IngressControllerMode
+	ingressClass   string
 
 	queue    kube.Queue
 	informer cache.SharedIndexInformer
 	elector  *leaderelection.LeaderElector
 	handler  *kube.ChainHandler
 
-	informerStopCh   chan struct{}
-	electorCancel context.CancelFunc
+	informerStopCh chan struct{}
+	electorCancel  context.CancelFunc
 }
 
 var podNameVar = env.RegisterStringVar("POD_NAME", "", "")
@@ -192,23 +193,21 @@ func (s *StatusSyncer) buildElector(st StatusSyncer, electionID string) *leadere
 		Component: "ingress-leader-elector",
 		Host:      hostname,
 	})
-	podName := podNameVar.Get()
 
 	lock := resourcelock.ConfigMapLock{
 		ConfigMapMeta: metaV1.ObjectMeta{Namespace: "default", Name: electionID},
 		Client:        st.client.CoreV1(),
 		LockConfig: resourcelock.ResourceLockConfig{
-			Identity:      podName,
+			Identity:      podNameVar.Get(),
 			EventRecorder: recorder,
 		},
 	}
 
-	ttl := 30 * time.Second
 	le, err := leaderelection.NewLeaderElector(leaderelection.LeaderElectionConfig{
 		Lock:          &lock,
-		LeaseDuration: ttl,
-		RenewDeadline: ttl / 2,
-		RetryPeriod:   ttl / 4,
+		LeaseDuration: electorTtl,
+		RenewDeadline: electorTtl / 2,
+		RetryPeriod:   electorTtl / 4,
 		Callbacks:     callbacks,
 	})
 

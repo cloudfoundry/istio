@@ -54,17 +54,18 @@ const (
 type StatusSyncer struct {
 	client kubernetes.Interface
 
-	mode         meshconfigapi.MeshConfig_IngressControllerMode
-	ingressClass string
-
 	// Name of service (ingressgateway default) to find the IP
 	ingressService string
+	mode         meshconfigapi.MeshConfig_IngressControllerMode
+	ingressClass string
 
 	queue    kube.Queue
 	informer cache.SharedIndexInformer
 	elector  *leaderelection.LeaderElector
 	handler  *kube.ChainHandler
-	stopCh   chan struct{}
+
+	informerStopCh   chan struct{}
+	electorCancel context.CancelFunc
 }
 
 var podNameVar = env.RegisterStringVar("POD_NAME", "", "")
@@ -82,12 +83,14 @@ func NewStatusSyncer(args *settings.Args) *StatusSyncer {
 
 	client, err := i.KubeClient()
 	if err != nil {
-		panic("test me")
+		log.Debugf("could not get kube client for status syncer")
+		return nil
 	}
 
 	meshConfigCache, err := newMeshConfigCache(args.MeshConfigFile)
 	if err != nil {
-		panic("test me")
+		log.Debugf("status syncer: mesh config cache %s", err)
+		return nil
 	}
 	meshConfig := meshConfigCache.Get()
 
@@ -121,6 +124,46 @@ func NewStatusSyncer(args *settings.Args) *StatusSyncer {
 		handler:        handler,
 	}
 
+	st.elector = st.buildElector(st, electionID)
+
+	// Register handler at the beginning
+	ingressNamespace := constants.IstioIngressNamespace
+	handler.Append(func(obj interface{}, event model.Event) error {
+		addrs, err := st.runningAddresses(ingressNamespace)
+		if err != nil {
+			return err
+		}
+
+		return st.updateStatus(sliceToStatus(addrs))
+	})
+
+	return &st
+}
+
+func (s *StatusSyncer) Start() (err error) {
+	s.informerStopCh = make(chan struct{})
+	go s.informer.Run(s.informerStopCh)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	s.electorCancel = cancel
+	go s.elector.Run(ctx)
+
+	return nil
+}
+
+func (s *StatusSyncer) Stop() {
+	if s.informerStopCh != nil {
+		close(s.informerStopCh)
+		s.informerStopCh = nil
+	}
+
+	if s.electorCancel != nil {
+		s.electorCancel()
+		s.electorCancel = nil
+	}
+}
+
+func (s *StatusSyncer) buildElector(st StatusSyncer, electionID string) *leaderelection.LeaderElector {
 	callbacks := leaderelection.LeaderCallbacks{
 		OnStartedLeading: func(ctx context.Context) {
 			log.Infof("I am the new status update leader")
@@ -153,7 +196,7 @@ func NewStatusSyncer(args *settings.Args) *StatusSyncer {
 
 	lock := resourcelock.ConfigMapLock{
 		ConfigMapMeta: metaV1.ObjectMeta{Namespace: "default", Name: electionID},
-		Client:        client.CoreV1(),
+		Client:        st.client.CoreV1(),
 		LockConfig: resourcelock.ResourceLockConfig{
 			Identity:      podName,
 			EventRecorder: recorder,
@@ -173,34 +216,7 @@ func NewStatusSyncer(args *settings.Args) *StatusSyncer {
 		log.Errorf("unexpected error starting leader election: %v", err)
 	}
 
-	st.elector = le
-
-	// Register handler at the beginning
-	ingressNamespace := constants.IstioIngressNamespace
-	handler.Append(func(obj interface{}, event model.Event) error {
-		addrs, err := st.runningAddresses(ingressNamespace)
-		if err != nil {
-			return err
-		}
-
-		return st.updateStatus(sliceToStatus(addrs))
-	})
-
-	return &st
-}
-
-func (s *StatusSyncer) Start() (err error) {
-	s.stopCh = make(chan struct{})
-	go s.informer.Run(s.stopCh)
-	go s.elector.Run(context.Background())
-	return nil
-}
-
-func (s *StatusSyncer) Stop() {
-	if s.stopCh != nil {
-		close(s.stopCh)
-		s.stopCh = nil
-	}
+	return le
 }
 
 // runningAddresses returns a list of IP addresses and/or FQDN where the

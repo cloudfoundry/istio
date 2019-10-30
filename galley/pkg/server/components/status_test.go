@@ -13,6 +13,7 @@ import (
 	. "github.com/onsi/gomega"
 	meshconfigapi "istio.io/api/mesh/v1alpha1"
 	"istio.io/istio/galley/pkg/config/source/kube"
+	meshconfig "istio.io/istio/galley/pkg/meshconfig"
 	"istio.io/istio/galley/pkg/server/settings"
 	"istio.io/istio/galley/pkg/testing/mock"
 )
@@ -26,25 +27,17 @@ func TestStatus(t *testing.T) {
 	cl := fake.NewSimpleDynamicClient(k8sRuntime.NewScheme())
 	mk.AddResponse(cl, nil)
 
-	args := settings.DefaultArgs()
-	args.EnableServiceDiscovery = true
+	args := defaultSyncArgs(*g)
 
 	newInterfaces = func(string) (kube.Interfaces, error) {
 		return mk, nil
 	}
-	tmpDir, err := ioutil.TempDir(os.TempDir(), t.Name())
-	g.Expect(err).To(BeNil())
-
-	meshCfgFile := path.Join(tmpDir, "meshcfg.yaml")
-	_, err = os.Create(meshCfgFile)
-	g.Expect(err).To(BeNil())
-	args.MeshConfigFile = meshCfgFile
 
 	s := NewStatusSyncer(args)
 	g.Expect(s).ToNot(BeNil())
 
-	err = s.Start()
-	g.Expect(err).To(BeNil())
+	err := s.Start()
+	g.Expect(err).ToNot(HaveOccurred())
 
 	s.Stop()
 }
@@ -54,44 +47,62 @@ func TestNewStatusSyncerWithErrors(t *testing.T) {
 	resetPatchTable()
 	defer resetPatchTable()
 
-	newInterfaces = func(string) (kube.Interfaces, error) {
-		return nil, fmt.Errorf("error getting kube interface")
-	}
-
-	args := settings.DefaultArgs()
-	args.EnableServiceDiscovery = true
-	s := NewStatusSyncer(args)
-	g.Expect(s).To(BeNil())
-}
-
-func TestStatusWithDisabledServiceDiscovery(t *testing.T) {
-	g := NewWithT(t)
-	resetPatchTable()
-	defer resetPatchTable()
-
-	args := settings.DefaultArgs()
-	args.EnableServiceDiscovery = false
-
-	s := NewStatusSyncer(args)
-	g.Expect(s).To(BeNil())
-}
-
-func TestStatusWithKubeClientError(t *testing.T) {
-	g := NewWithT(t)
-	resetPatchTable()
-	defer resetPatchTable()
-
-	args := settings.DefaultArgs()
-	args.EnableServiceDiscovery = false
-
 	mk := mock.NewKube()
-	mk.AddResponse(nil, fmt.Errorf("error from kube client"))
+	cl := fake.NewSimpleDynamicClient(k8sRuntime.NewScheme())
+	mk.AddResponse(cl, nil)
+
 	newInterfaces = func(string) (kube.Interfaces, error) {
 		return mk, nil
 	}
 
-	s := NewStatusSyncer(args)
-	g.Expect(s).To(BeNil())
+	cases := []struct {
+		description     string
+		newInterfaces   func(string) (kube.Interfaces, error)
+		meshConfigCache func(string) (meshconfig.Cache, error)
+	}{
+		{
+			description: "no kube interface",
+			newInterfaces: func(string) (kube.Interfaces, error) {
+				return nil, fmt.Errorf("error getting kube interface")
+			},
+		},
+		{
+			description: "mesh config cache error",
+			meshConfigCache: func(string) (meshconfig.Cache, error) {
+				return nil, fmt.Errorf("error getting mesh config")
+			},
+		},
+	}
+
+	for _, c := range cases {
+		args := defaultSyncArgs(*g)
+
+		if c.newInterfaces != nil {
+			newInterfaces = c.newInterfaces
+		}
+
+		if c.meshConfigCache != nil {
+			newMeshConfigCache = c.meshConfigCache
+		}
+
+		s := NewStatusSyncer(args)
+		g.Expect(s).To(BeNil())
+	}
+
+}
+
+func defaultSyncArgs(g GomegaWithT) *settings.Args {
+	args := settings.DefaultArgs()
+	args.EnableServiceDiscovery = true
+
+	tmpDir, _ := ioutil.TempDir(os.TempDir(), "status-syncer")
+	meshCfgFile := path.Join(tmpDir, "meshcfg.yaml")
+	_, err := os.Create(meshCfgFile)
+	g.Expect(err).ToNot(HaveOccurred())
+
+	args.MeshConfigFile = meshCfgFile
+
+	return args
 }
 
 func TestShouldUpdateStatus(t *testing.T) {
